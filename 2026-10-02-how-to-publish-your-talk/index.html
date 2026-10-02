@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>How to publish your talk</title>
+    <meta name="author" content="Acid Tango" />
+    <meta name="description" content="Four steps to upload your HTML deck and get a link to share." />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #fafaf7;
+        --fg: #16161a;
+        --muted: #63636e;
+        --accent: #5b2be0;
+        --code: #ecece6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #121214;
+          --fg: #f1f1ee;
+          --muted: #a0a0ab;
+          --accent: #b39bff;
+          --code: #24242a;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font: clamp(18px, 2.4vw, 30px) / 1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+      section {
+        display: none;
+        height: 100%;
+        max-width: 28em;
+        margin: 0 auto;
+        padding: 16px;
+        flex-direction: column;
+        justify-content: center;
+      }
+      section.current {
+        display: flex;
+      }
+      h1 {
+        margin: 0 0 0.4em;
+        font-size: 2em;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+      }
+      p,
+      ol {
+        margin: 0 0 0.6em;
+      }
+      ol {
+        padding-left: 1.2em;
+      }
+      li {
+        margin-bottom: 0.3em;
+      }
+      code {
+        padding: 0.1em 0.3em;
+        border-radius: 4px;
+        background: var(--code);
+        font: 0.85em ui-monospace, 'SF Mono', Menlo, monospace;
+        overflow-wrap: anywhere;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      strong {
+        color: var(--accent);
+      }
+      footer {
+        position: fixed;
+        right: 16px;
+        bottom: 12px;
+        color: var(--muted);
+        font-size: 0.6em;
+      }
+    </style>
+  </head>
+  <body>
+    <section>
+      <h1>How to publish your talk</h1>
+      <p class="muted">Use the arrow keys or tap the screen to move forward.</p>
+    </section>
+    <section>
+      <h1>1. A single HTML file</h1>
+      <p>Your deck must be <strong>self-contained</strong>: CSS, JS and images inside the file itself.</p>
+      <p class="muted">That way it works the same here, on your laptop and without wifi.</p>
+    </section>
+    <section>
+      <h1>2. Three tags</h1>
+      <p>The index is generated from your HTML:</p>
+      <ol>
+        <li><code>&lt;title&gt;</code> with the title</li>
+        <li><code>&lt;meta name="author"&gt;</code> with your name</li>
+        <li><code>&lt;meta name="description"&gt;</code> with one sentence</li>
+      </ol>
+    </section>
+    <section>
+      <h1>3. One folder</h1>
+      <p>Create <code>YYYY-MM-DD-short-title/</code> at the repo root and save your deck inside as <code>index.html</code>.</p>
+      <p class="muted">With Claude Code: <code>/publish-talk my-talk.html</code></p>
+    </section>
+    <section>
+      <h1>4. Push</h1>
+      <p>A couple of minutes later you have your link:</p>
+      <p><code>acidtango.github.io/acid-talks/YYYY-MM-DD-short-title/</code></p>
+      <p class="muted">Remember it is <strong>public</strong>: no client data.</p>
+    </section>
+    <footer></footer>
+    <script>
+      const slides = [...document.querySelectorAll('section')]
+      const counter = document.querySelector('footer')
+      let current = Math.min(Math.max(parseInt(location.hash.slice(1)) || 1, 1), slides.length) - 1
+
+      function show(index) {
+        current = Math.min(Math.max(index, 0), slides.length - 1)
+        slides.forEach((slide, i) => slide.classList.toggle('current', i === current))
+        counter.textContent = `${current + 1} / ${slides.length}`
+        history.replaceState(null, '', `#${current + 1}`)
+      }
+
+      addEventListener('keydown', (event) => {
+        if (['ArrowRight', 'ArrowDown', 'PageDown', ' '].includes(event.key)) show(current + 1)
+        if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(event.key)) show(current - 1)
+      })
+      addEventListener('click', (event) => show(current + (event.clientX < innerWidth / 3 ? -1 : 1)))
+
+      show(current)
+    </script>
+  </body>
+</html>
