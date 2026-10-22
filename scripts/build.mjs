@@ -39,15 +39,15 @@ function readTalk(dir) {
 }
 
 function renderTalk({ dir, date, title, author, description }) {
-  const day = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
-  const byline = [day, author].filter(Boolean).map(escapeHtml).join(' · ')
-  return `      <li>
-        <a href="./${dir}/">
-          <span class="title">${escapeHtml(title)}</span>
-          <span class="byline">${byline}</span>
-          ${description ? `<span class="description">${escapeHtml(description)}</span>` : ''}
-        </a>
-      </li>`
+  const day = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+  return `        <li class="talk">
+          <a href="./${dir}/">
+            <time class="date" datetime="${date.toISOString().slice(0, 10)}">${escapeHtml(day)}</time>
+            <h3 class="title">${escapeHtml(title)}</h3>
+            ${description ? `<p class="description">${escapeHtml(description)}</p>` : ''}
+            <span class="foot"><span>${escapeHtml(author)}</span><span class="arrow" aria-hidden="true">→</span></span>
+          </a>
+        </li>`
 }
 
 const dirs = readdirSync(ROOT, { withFileTypes: true })
@@ -65,8 +65,14 @@ const talks = dirs.map(readTalk).sort((a, b) => b.date - a.date || a.dir.localeC
 rmSync(OUT, { recursive: true, force: true })
 mkdirSync(OUT)
 for (const { dir } of talks) cpSync(join(ROOT, dir), join(OUT, dir), { recursive: true })
+cpSync(join(ROOT, 'assets'), join(OUT, 'assets'), { recursive: true })
 
 const template = readFileSync(join(ROOT, 'index.template.html'), 'utf8')
-writeFileSync(join(OUT, 'index.html'), template.replace('<!-- TALKS -->', talks.map(renderTalk).join('\n')))
+writeFileSync(
+  join(OUT, 'index.html'),
+  template
+    .replace('<!-- TALKS -->', talks.map(renderTalk).join('\n'))
+    .replace('<!-- TALK_COUNT -->', `${talks.length} ${talks.length === 1 ? 'talk' : 'talks'}`),
+)
 
 console.log(`${talks.length} talk(s) built into _site/`)
