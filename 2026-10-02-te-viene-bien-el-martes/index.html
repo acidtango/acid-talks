@@ -1,0 +1,1689 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>¿Te viene bien el martes?</title>
+<meta name="author" content="Santiago Ortega">
+<meta name="description" content="Calendarización y reservas vistas desde el backend: tipos, problemas y técnicas para cuando te toque.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Montserrat:wght@500;600;700;800&display=swap">
+<style>
+/* Layout: escenario 16:9 fijo (1600×900) escalado al viewport, sobre un "mundo" synthwave a sangre
+   (sol a franjas + rejilla en perspectiva de la plantilla Acid Tango). El sol sube y baja según la sección. */
+:root{
+  --night:#141413;
+  --panel:#1E1E1C;
+  --panel-2:#262624;
+  --line:#34332F;
+  --fg:#F5F3EE;
+  --muted:#B4B1A8;
+  --dim:#75736C;
+  --sun:#FFC419;
+  --sun-soft:rgba(255,196,25,.13);
+  --ok:#7FC695;
+  --ok-soft:rgba(127,198,149,.14);
+  --bad:#EA7A71;
+  --bad-soft:rgba(234,122,113,.14);
+  --info:#8FB8E8;
+  --grid:rgba(255,255,255,.13);
+  --display:"Montserrat","Helvetica Neue",Helvetica,Arial,sans-serif;
+  --body:"Helvetica Neue",Helvetica,Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--night);color:var(--fg);font-family:var(--body);overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--sun);outline-offset:3px}
+kbd{font:600 .8em/1 var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:.25em .5em;color:var(--fg);background:var(--panel)}
+
+/* ---------- Mundo ---------- */
+#world{position:fixed;inset:0;overflow:hidden;pointer-events:none;--horizon:63vh;--rise:0}
+.sky{position:absolute;left:0;right:0;top:0;height:var(--horizon);overflow:hidden;transition:opacity 1s}
+.orb{position:absolute;right:7vw;bottom:0;width:min(41vh,30vw);aspect-ratio:1;border-radius:50%;background:var(--sun);
+  -webkit-mask-image:linear-gradient(to bottom,#000 0 47%,transparent 47% 49.5%,#000 49.5% 57%,transparent 57% 60%,#000 60% 67%,transparent 67% 71%,#000 71% 77%,transparent 77% 82%,#000 82% 87%,transparent 87% 93%,#000 93% 100%);
+  mask-image:linear-gradient(to bottom,#000 0 47%,transparent 47% 49.5%,#000 49.5% 57%,transparent 57% 60%,#000 60% 67%,transparent 67% 71%,#000 71% 77%,transparent 77% 82%,#000 82% 87%,transparent 87% 93%,#000 93% 100%);
+  transform:translateY(calc((1 - var(--rise)) * 101%));transition:transform 1.8s cubic-bezier(.25,.7,.2,1);filter:drop-shadow(0 0 60px rgba(255,196,25,.25))}
+.horizon{position:absolute;left:0;right:0;top:var(--horizon);height:1px;background:linear-gradient(90deg,transparent,rgba(255,196,25,.55) 50%,transparent);transition:opacity 1s}
+.floor{position:absolute;left:0;right:0;top:var(--horizon);bottom:0;perspective:26vh;perspective-origin:50% 0;overflow:hidden;transition:opacity 1.1s,transform 1.2s cubic-bezier(.25,.7,.2,1);
+  -webkit-mask-image:linear-gradient(to bottom,transparent,#000 18%);mask-image:linear-gradient(to bottom,transparent,#000 18%)}
+.floor-grid{position:absolute;left:-80%;width:260%;top:0;height:320%;transform-origin:50% 0;transform:rotateX(74deg);
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:88px 88px;animation:floor 3.2s linear infinite}
+@keyframes floor{to{background-position:0 88px}}
+.mtn{position:absolute;transition:opacity 1s,transform 1.2s}
+.mtn polygon{fill:#0A0A09}
+.mtn polyline{fill:none;stroke:rgba(255,255,255,.28);stroke-width:1}
+.mtn-l{left:3vw;top:calc(var(--horizon) + 6vh);width:36vw}
+.mtn-r{right:3vw;top:calc(var(--horizon) - 1vh);width:24vw}
+#world[data-mode="content"] .sky,#world[data-mode="content"] .horizon,#world[data-mode="content"] .mtn{opacity:0}
+#world[data-mode="content"] .floor{opacity:.22;transform:translateY(24vh)}
+#world[data-mode="section"] .mtn-l{transform:translateX(-6vw)}
+
+/* ---------- Escenario ---------- */
+#stage{position:fixed;left:50%;top:50%;width:1600px;height:900px;transform:translate(-50%,-50%) scale(var(--scale,1))}
+.slide{position:absolute;inset:0;padding:80px 120px 118px;display:flex;flex-direction:column;gap:26px;
+  opacity:0;visibility:hidden;transform:translateX(70px);
+  transition:opacity .4s ease,transform .6s cubic-bezier(.2,.7,.2,1),visibility 0s linear .6s}
+.slide.is-past{transform:translateX(-70px)}
+.slide.is-active{opacity:1;visibility:visible;transform:none;transition:opacity .5s ease .12s,transform .7s cubic-bezier(.2,.7,.2,1) .12s,visibility 0s}
+.slide>.notes{display:none}
+
+/* Tipografía */
+.kicker{font:600 18px/1 var(--display);letter-spacing:.2em;text-transform:uppercase;color:var(--sun);margin:0}
+.title{font:700 54px/1.07 var(--display);letter-spacing:-.022em;margin:0;text-wrap:balance;max-width:1300px}
+.lead{font-size:27px;line-height:1.42;color:var(--muted);margin:0;max-width:1180px;text-wrap:pretty}
+.body{font-size:23px;line-height:1.5;margin:0}
+.small{font-size:18px;line-height:1.5;color:var(--muted);margin:0}
+.hl{color:var(--sun)}
+.okc{color:var(--ok)} .badc{color:var(--bad)}
+strong{font-weight:700}
+code{font-family:var(--mono);font-size:.86em;background:rgba(255,255,255,.07);padding:.1em .38em;border-radius:6px}
+pre.code{margin:0;background:#0C0C0B;border:1px solid var(--line);border-radius:14px;padding:18px 22px;font:400 17px/1.6 var(--mono);color:#E9E6DD;overflow:auto;white-space:pre;tab-size:4}
+pre.code,pre.code code{font-variant-ligatures:none;font-feature-settings:"calt" 0,"liga" 0}
+.tok-k{color:var(--sun)} .tok-s{color:var(--ok)} .tok-c{color:var(--dim);font-style:italic} .tok-n{color:var(--info)} .tok-f{color:#F4DC96} .tok-d{color:var(--bad)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:40px;min-height:0}
+.cols>*{min-width:0}
+.stack{display:flex;flex-direction:column;gap:18px;min-width:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:26px 28px}
+.list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:14px}
+.list li{font-size:22px;line-height:1.45;padding-left:30px;position:relative}
+.list li::before{content:"";position:absolute;left:4px;top:.62em;width:12px;height:2px;background:var(--sun)}
+
+/* Términos con definición */
+dfn{font-style:normal;text-decoration:underline dotted rgba(255,196,25,.7);text-decoration-thickness:1.5px;text-underline-offset:.2em;cursor:help}
+.ti{all:unset;display:inline-grid;place-items:center;width:.7em;height:.7em;margin-left:.16em;vertical-align:.42em;border-radius:50%;background:var(--sun);color:#161512;font:800 .48em/1 var(--display);cursor:pointer}
+.ti:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+#tip{position:absolute;z-index:20;width:430px;background:#0C0C0B;border:1px solid var(--sun);border-radius:14px;padding:16px 18px;box-shadow:0 18px 50px rgba(0,0,0,.6);pointer-events:none}
+#tip b{display:block;font:700 19px/1.2 var(--display);color:var(--sun);margin-bottom:6px}
+#tip p{margin:0;font-size:18px;line-height:1.45;color:var(--fg)}
+
+/* Fragmentos */
+[data-step]{transition:opacity .45s ease,transform .45s ease}
+[data-step]:not(.is-shown){opacity:0;transform:translateY(14px);pointer-events:none}
+
+/* Controles */
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:4px;gap:4px;background:var(--panel)}
+.seg button{border:0;background:transparent;padding:10px 18px;border-radius:999px;font:600 16px/1 var(--display);color:var(--muted);cursor:pointer;white-space:nowrap}
+.seg button:hover{color:var(--fg)}
+.seg button[aria-pressed="true"]{background:var(--sun);color:#161512}
+.btn{border:1px solid var(--sun);background:transparent;color:var(--sun);padding:12px 22px;border-radius:999px;font:600 16px/1 var(--display);cursor:pointer;letter-spacing:.02em;white-space:nowrap}
+.btn:hover{background:var(--sun-soft)}
+.btn:disabled{opacity:.3;cursor:default}
+.btn.solid{background:var(--sun);color:#161512}
+.btn.ghost{border-color:var(--line);color:var(--muted)}
+.chk{display:inline-flex;align-items:center;gap:10px;font-size:19px;cursor:pointer;user-select:none}
+.chk input{width:20px;height:20px;accent-color:var(--sun);margin:0}
+.chk input:disabled+span{opacity:.4}
+.row{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+
+/* ---------- HUD ---------- */
+.hud{position:absolute;left:0;right:0;bottom:0;height:80px;padding:0 120px;display:flex;align-items:center;gap:26px;font:600 14px/1 var(--display);letter-spacing:.16em;text-transform:uppercase;color:var(--dim);z-index:5}
+.hud img{height:21px;width:auto;opacity:.92}
+.hud .where{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hud .count{font-variant-numeric:tabular-nums;color:var(--muted);letter-spacing:.08em}
+.navbtn{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:rgba(20,20,19,.6);color:var(--muted);cursor:pointer;display:grid;place-items:center;font-size:18px}
+.navbtn:hover{color:var(--sun);border-color:var(--sun)}
+#progress{position:fixed;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.06);z-index:10}
+#progress i{display:block;height:100%;width:0;background:var(--sun);transition:width .5s ease}
+#notes{position:fixed;left:16px;right:16px;bottom:16px;max-height:40vh;overflow:auto;background:rgba(12,12,11,.96);border:1px solid var(--line);border-radius:14px;padding:16px 22px;font:17px/1.55 var(--body);color:var(--fg);z-index:30;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+#notes h4,#toc h4{margin:0 0 10px;font:600 13px/1 var(--display);letter-spacing:.18em;text-transform:uppercase;color:var(--sun)}
+.nt{display:grid;gap:9px}
+.nt p{margin:0}
+.nt [data-k]{position:relative;padding-left:118px}
+.nt [data-k]::before{position:absolute;left:0;top:.4em;font:600 12px/1 var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--sun)}
+.nt [data-k="idea"]::before{content:"Idea"}
+.nt [data-k="decir"]::before{content:"Decir"}
+.nt [data-k="accion"]::before{content:"Interactúa"}
+.nt [data-k="pasar"]::before{content:"Pasa cuando";color:var(--ok)}
+.nt dfn .ti{display:none}
+#toc{position:fixed;top:0;right:0;bottom:0;width:min(460px,92vw);background:#0F0F0E;border-left:1px solid var(--line);z-index:40;overflow:auto;padding:28px 22px}
+#toc ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+#toc button{width:100%;text-align:left;border:0;background:transparent;padding:9px 12px;border-radius:8px;cursor:pointer;display:grid;grid-template-columns:30px 1fr auto;gap:12px;font-size:16px;color:var(--muted)}
+#toc button:hover,#toc button[aria-current="true"]{background:var(--panel);color:var(--fg)}
+#toc button span:first-child,#toc button span:last-child{font:600 13px/1.6 var(--mono);color:var(--dim)}
+#toc .sec button{color:var(--sun);font-weight:600}
+
+/* ---------- Portada, secciones, frases ---------- */
+.cover{justify-content:center;gap:30px}
+.cover h1{font:800 118px/.95 var(--display);letter-spacing:-.04em;margin:0}
+.cover h1 em{font-style:normal;color:var(--sun)}
+.cover .lead{max-width:760px;color:var(--fg)}
+.byline{font:600 17px/1.4 var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0}
+.keys{position:absolute;left:120px;bottom:112px;font-size:16px;color:var(--dim);display:flex;gap:14px;align-items:center;margin:0}
+.section{justify-content:center;gap:20px}
+.section .num{font:800 230px/.8 var(--display);letter-spacing:-.05em;color:var(--sun);margin:0 0 18px}
+.section .title{font-size:86px;max-width:980px}
+.section .lead{max-width:760px}
+.statement{font:700 76px/1.08 var(--display);letter-spacing:-.03em;margin:0;max-width:1300px;text-wrap:balance}
+.statement.dim{color:var(--muted);font-size:50px;font-weight:600}
+.thesis{justify-content:center;gap:36px}
+.map{display:flex;gap:0;margin-top:14px;border-top:1px solid var(--line)}
+.map span{flex:1;padding:18px 20px 0 0;font:600 20px/1.3 var(--display);color:var(--muted)}
+.map b{display:block;font:800 30px/1 var(--display);color:var(--sun);margin-bottom:8px}
+.quote{justify-content:center;gap:30px}
+.quote blockquote{margin:0;font:700 70px/1.1 var(--display);letter-spacing:-.03em;max-width:1250px;text-wrap:balance}
+.quote blockquote::before{content:"“";display:block;color:var(--sun);font-size:150px;line-height:.6;margin-bottom:6px}
+.quote cite{font:600 17px/1 var(--display);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-style:normal}
+
+/* ---------- Quiz ---------- */
+.quiz{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-top:6px}
+.opt{border:1px solid var(--line);background:var(--panel);border-radius:18px;padding:26px 24px;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:8px;transition:border-color .25s,background .25s,transform .25s}
+.opt:hover{border-color:var(--sun);transform:translateY(-3px)}
+.opt b{font:800 64px/1 var(--display);letter-spacing:-.03em}
+.opt span{font-size:18px;color:var(--muted)}
+.opt:nth-child(4) b{font-size:44px;line-height:1.45}
+.opt.is-right{border-color:var(--ok);background:var(--ok-soft)}
+.opt.is-half{border-color:var(--sun);background:var(--sun-soft)}
+.opt.is-wrong{border-color:var(--bad);background:var(--bad-soft)}
+.quiz-reveal{display:flex;flex-direction:column;gap:18px}
+.hours{display:grid;grid-template-columns:repeat(25,1fr);gap:4px}
+.hours div{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 0 8px;text-align:center;display:flex;flex-direction:column;gap:5px;opacity:0;animation:pop .35s ease forwards}
+.hours div b{font:700 17px/1 var(--mono)}
+.hours div small{font:400 12px/1 var(--mono);color:var(--dim)}
+.hours div.twice{border-color:var(--sun);background:var(--sun-soft)}
+.hours div.twice b{color:var(--sun)}
+@keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ---------- Taxonomía ---------- */
+.tax{display:flex;flex-direction:column;gap:20px}
+.tax-domains{display:flex;gap:10px;flex-wrap:wrap}
+.tax-domains button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:13px 20px;font:600 18px/1 var(--display);color:var(--muted);cursor:pointer}
+.tax-domains button[aria-pressed="true"]{border-color:var(--sun);color:#161512;background:var(--sun)}
+.tax-grid{display:grid;grid-template-columns:300px 1fr;row-gap:12px;column-gap:24px;align-items:center;margin:0}
+.tax-grid dt{font:600 16px/1.2 var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.tax-grid dd{margin:0;display:flex;gap:10px;flex-wrap:wrap}
+.pill{border:1px solid var(--line);border-radius:10px;padding:9px 18px;font-size:22px;color:var(--dim);transition:all .3s}
+.pill.on{border-color:var(--sun);color:var(--fg);background:var(--sun-soft)}
+.tax-note{font-size:23px;line-height:1.45;margin:0;padding-left:20px;border-left:2px solid var(--sun)}
+
+/* ---------- Disponibilidad ---------- */
+.av{display:flex;flex-direction:column;gap:12px}
+.av-head{display:flex;justify-content:space-between;align-items:center;gap:24px}
+.formula{font:500 18px/1.4 var(--mono);white-space:nowrap;color:var(--muted);margin:0}
+.formula b{color:var(--sun);font-weight:600}
+.av-scale,.lane{display:grid;grid-template-columns:250px 1fr;gap:18px;align-items:center}
+.av-scale .track{height:22px;border:0;background:none}
+#av-scale span{position:absolute;top:0;transform:translateX(-50%);font:400 14px/1 var(--mono);color:var(--dim)}
+.track{position:relative;height:36px;border-radius:8px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.05);transition:opacity .3s}
+.lane label{display:flex;align-items:center;gap:10px;cursor:pointer;font:600 17px/1.15 var(--display)}
+.lane label small{display:block;font:400 13.5px/1.2 var(--body);color:var(--dim);margin-top:2px}
+.lane input{width:18px;height:18px;accent-color:var(--sun);margin:0;flex:none}
+.lane.off .track{opacity:.16}
+.lane.off label{color:var(--dim)}
+.blk{position:absolute;top:4px;bottom:4px;border-radius:5px;font:500 12.5px/1 var(--body);display:flex;align-items:center;padding:0 7px;white-space:nowrap;overflow:hidden;color:#161512}
+.blk.work{background:rgba(245,243,238,.16);color:var(--fg)}
+.blk.book{background:var(--info)}
+.blk.buf{background:repeating-linear-gradient(135deg,rgba(143,184,232,.55) 0 5px,transparent 5px 9px);border:1px solid rgba(143,184,232,.6)}
+.blk.off{background:var(--bad)}
+.blk.ext{background:#C9A3E6}
+.blk.notice{background:repeating-linear-gradient(135deg,rgba(234,122,113,.5) 0 6px,transparent 6px 11px);border:1px solid rgba(234,122,113,.6);color:var(--fg)}
+.tick{position:absolute;top:6px;bottom:6px;width:1px;background:rgba(255,255,255,.22)}
+.slot{position:absolute;top:3px;bottom:3px;width:4px;margin-left:-2px;border-radius:2px;background:var(--sun);animation:pop .3s ease both}
+.lane.result .track{background:var(--sun-soft);border-color:rgba(255,196,25,.25)}
+.av-result{display:grid;grid-template-columns:250px 1fr;gap:18px;align-items:start;margin-top:4px}
+.av-count b{display:block;font:800 60px/1 var(--display);color:var(--sun);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.av-count span{font-size:17px;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips span{font:600 16px/1 var(--mono);padding:9px 11px;border-radius:8px;background:var(--panel);border:1px solid var(--line)}
+
+/* ---------- Tabla TZ ---------- */
+.tz table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.tz th{font:600 14px/1.2 var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--dim);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
+.tz td{padding:15px 12px;border-bottom:1px solid rgba(255,255,255,.05);font:500 23px/1 var(--mono)}
+.tz td:first-child{font:600 19px/1 var(--body)}
+.tz td.bad{color:var(--bad)}
+.tz td.good{color:var(--ok)}
+.tz td.warn{color:var(--sun)}
+.tz tr.dst td{border-top:2px dashed var(--sun)}
+.tz small{font:400 14px/1 var(--mono);color:var(--dim);margin-left:6px}
+
+/* ---------- Carrera ---------- */
+.race-wrap{display:grid;grid-template-columns:1.5fr 1fr;gap:28px;align-items:start}
+.race-wrap>*{min-width:0}
+.race{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.race .h{padding:14px 18px;font:700 18px/1 var(--display);background:var(--panel-2);border-bottom:1px solid var(--line)}
+.race .h small{font:400 15px var(--body);color:var(--muted);margin-left:8px}
+.race .c{padding:10px 18px;font:400 16px/1.4 var(--mono);min-height:42px;border-bottom:1px solid rgba(255,255,255,.04);animation:pop .3s ease both}
+.race .c:nth-child(odd){border-right:1px solid var(--line)}
+.race .c.ok{color:var(--ok)} .race .c.bad{color:var(--bad)} .race .c.wait{color:var(--sun)}
+.race-out{font-size:22px;line-height:1.4;padding:14px 20px;border-radius:14px;border:1px solid var(--line);margin:0}
+.race-out.ok{border-color:var(--ok);background:var(--ok-soft)}
+.race-out.bad{border-color:var(--bad);background:var(--bad-soft)}
+.tech{display:flex;flex-direction:column;gap:14px}
+.tech .tag{font:600 13px/1 var(--display);letter-spacing:.16em;text-transform:uppercase;color:var(--sun)}
+.tech h3{margin:0;font:700 27px/1.15 var(--display)}
+.tech p{font-size:19px;line-height:1.45;color:var(--muted);margin:0}
+
+/* ---------- Máquina de estados ---------- */
+.sm svg{width:100%;max-width:1080px;height:auto;display:block;margin:0 auto}
+.sm .node rect{fill:var(--panel);stroke:var(--line);stroke-width:1.5;transition:all .35s}
+.sm .node text{fill:var(--fg);font:600 18px var(--display);text-anchor:middle;transition:fill .35s}
+.sm .node text.sub{font:400 14px var(--body);fill:var(--dim)}
+.sm .node.on rect{fill:var(--sun);stroke:var(--sun)}
+.sm .node.on text{fill:#161512}
+.sm .edge path{fill:none;stroke:var(--line);stroke-width:2;transition:stroke .35s}
+.sm .edge text{fill:var(--dim);font:500 15px var(--body);text-anchor:middle;transition:fill .35s}
+.sm .edge.can path{stroke:rgba(255,196,25,.5)}
+.sm .edge.can text{fill:var(--fg)}
+.sm .edge.fired path{stroke:var(--sun);stroke-dasharray:8 6;animation:dash .6s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-14}}
+.sm-foot{display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:start}
+.sm-log{font-size:19px;line-height:1.45;margin:0;padding:12px 18px;border-left:2px solid var(--sun);background:rgba(255,255,255,.02);min-height:84px}
+.sm-slide{gap:16px}
+.opts{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.opts span{border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:18px}
+
+/* ---------- Técnicas en tarjetas ---------- */
+.techs{display:flex;flex-direction:column;gap:14px}
+.techs div{padding:16px 20px;border-left:3px solid var(--sun);background:rgba(255,255,255,.03);border-radius:0 12px 12px 0}
+.techs b{display:block;font:700 22px/1.2 var(--display);margin-bottom:6px}
+.techs span{font-size:19px;line-height:1.45;color:var(--muted)}
+
+/* ---------- Webhooks ---------- */
+.wh{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.wh div{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.wh b{display:block;font:800 54px/1 var(--display);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.wh span{font-size:16px;color:var(--muted)}
+.wh .bad b{color:var(--bad)}
+
+/* ---------- Saga ---------- */
+.saga{display:grid;grid-template-columns:1fr 60px 1fr 60px 1fr;grid-template-rows:auto 56px auto;align-items:center}
+.step{border:1.5px solid var(--line);border-radius:14px;padding:18px 20px;background:var(--panel);transition:all .35s;min-height:108px;display:flex;flex-direction:column;justify-content:center;gap:6px}
+.step b{font:700 21px/1.2 var(--display)}
+.step span{font-size:17px;color:var(--muted);line-height:1.35}
+.step.run{border-color:var(--sun);box-shadow:0 0 0 4px var(--sun-soft)}
+.step.ok{border-color:var(--ok);background:var(--ok-soft)}
+.step.fail{border-color:var(--bad);background:var(--bad-soft)}
+.step.skip{opacity:.35}
+.arr{text-align:center;color:var(--dim);font:400 30px/1 var(--display)}
+.arr.v{grid-column:3;font-size:22px}
+.saga-out{font-size:22px;line-height:1.45;margin:0;min-height:64px}
+
+/* ---------- Fail open/closed ---------- */
+.fo-cal{display:flex;flex-direction:column;gap:10px}
+.fo-cal div{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-radius:12px;border:1px solid var(--line);background:var(--panel);font:600 20px/1 var(--mono);animation:pop .3s ease both}
+.fo-cal div small{font:400 15px/1.2 var(--body);color:var(--muted)}
+.fo-cal div.risk{border-color:var(--bad);background:var(--bad-soft)}
+.fo-cal p{font-size:20px;color:var(--muted);margin:0;padding:18px;border:1px dashed var(--line);border-radius:12px}
+
+/* ---------- Contrato, monstruos ---------- */
+.snap{width:100%;border-collapse:collapse}
+.snap td{padding:17px 14px;border-bottom:1px solid var(--line);font-size:22px;line-height:1.4;vertical-align:top}
+.snap td:first-child{font:700 20px/1.4 var(--display);color:var(--sun);white-space:nowrap;width:1%;padding-right:40px}
+.monsters{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.monsters div{padding:24px 24px 28px;border-top:2px solid var(--line);display:flex;flex-direction:column;gap:10px}
+.monsters b{font:700 26px/1.2 var(--display)}
+.monsters span{font-size:20.5px;line-height:1.45;color:var(--muted)}
+
+/* ---------- Caso real ---------- */
+.pc h3{margin:0 0 20px;font:700 28px/1 var(--display)}
+.pc .list li{font-size:22px}
+.pc .cost .list li::before{background:var(--bad)}
+.pc .gain .list li::before{background:var(--ok)}
+.conn-line{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.conn-line .box{border:1.5px solid var(--line);border-radius:12px;padding:12px 18px;background:var(--panel);font:700 18px/1.2 var(--display)}
+.conn-line .box small{display:block;font:400 14px/1.3 var(--body);color:var(--muted);margin-top:4px}
+.conn-line .box.key{border-color:var(--sun);background:var(--sun-soft)}
+.conn-line i{font-style:normal;color:var(--dim);font-size:24px}
+
+/* ---------- Build vs buy ---------- */
+.bb{display:grid;grid-template-columns:1.35fr 1fr;gap:44px;align-items:start}
+.bb-q{display:flex;flex-direction:column;gap:8px}
+.bb-q div{display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+.bb-q p{margin:0;font-size:20px;line-height:1.35}
+.bb-q .seg button{padding:8px 14px;font-size:14px}
+.meter{position:relative;height:18px;border-radius:999px;background:linear-gradient(90deg,var(--info),var(--sun) 50%,var(--ok));margin:30px 0 14px}
+.meter i{position:absolute;top:-12px;width:4px;height:42px;margin-left:-2px;background:var(--fg);border-radius:2px;transition:left .5s cubic-bezier(.3,.7,.2,1)}
+.meter-l{display:flex;justify-content:space-between;font:600 14px/1 var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+.verdict{font:800 46px/1.05 var(--display);letter-spacing:-.02em;margin:22px 0 10px}
+.verdict-sub{font-size:19px;line-height:1.45;color:var(--muted);margin:0}
+
+/* ---------- Modelo propio ---------- */
+.er{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.er div{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:14px 16px}
+.er b{display:block;font:600 18px/1.2 var(--mono);color:var(--sun);margin-bottom:8px}
+.er span{display:block;font:400 15.5px/1.6 var(--mono);color:var(--muted)}
+.er .wide{grid-column:span 2}
+
+/* ---------- Checklist ---------- */
+.check{display:grid;grid-template-columns:1fr 1fr;gap:6px 44px;list-style:none;margin:0;padding:0}
+.check>li>button{all:unset;cursor:pointer;display:grid;grid-template-columns:34px 1fr;gap:14px;align-items:start;padding:16px 4px;border-bottom:1px solid rgba(255,255,255,.06);font-size:23px;line-height:1.4}
+.check>li>button::before{content:"";width:26px;height:26px;border-radius:7px;border:2px solid var(--line);margin-top:1px;transition:all .2s}
+.check>li>button[aria-pressed="true"]::before{background:var(--sun) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5' fill='none' stroke='%23161512' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/18px no-repeat;border-color:var(--sun)}
+.check>li>button[aria-pressed="true"] span{color:var(--muted)}
+.check-count{font:800 22px/1 var(--display);color:var(--sun);font-variant-numeric:tabular-nums}
+
+/* ---------- Glosario ---------- */
+.gloss{display:grid;grid-template-columns:repeat(3,1fr);gap:16px 40px;overflow:auto;max-height:620px;padding:0 12px 60px 0;align-content:start;-webkit-mask-image:linear-gradient(to bottom,#000 85%,transparent);mask-image:linear-gradient(to bottom,#000 85%,transparent)}
+.gloss div b{display:block;font:700 17px/1.25 var(--display);color:var(--sun);margin-bottom:4px}
+.gloss div span{font-size:15.5px;line-height:1.45;color:var(--muted)}
+
+/* ---------- Vista de presentador ---------- */
+#presenter{display:none}
+body.mode-presenter{overflow:auto}
+body.mode-presenter #world,body.mode-presenter #stage,body.mode-presenter #progress{display:none}
+body.mode-presenter #presenter{display:grid;grid-template-columns:1.25fr 1fr;grid-template-rows:auto 1fr;gap:16px;padding:16px;min-height:100vh}
+.p-top{grid-column:1/-1;display:flex;align-items:center;gap:22px;flex-wrap:wrap;padding:12px 18px;background:var(--panel);border:1px solid var(--line);border-radius:14px}
+.p-top .p-where{flex:1;min-width:0;font:600 17px/1.3 var(--display)}
+.p-top .p-where small{display:block;font:600 12px/1 var(--display);letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+.p-clock{font:800 44px/1 var(--display);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.p-pace{font:600 15px/1.35 var(--body);color:var(--muted);min-width:210px}
+.p-pace b{display:block;font:700 17px/1.2 var(--display)}
+.p-pace.ok b{color:var(--ok)} .p-pace.late b{color:var(--bad)} .p-pace.early b{color:var(--info)}
+.p-col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.pv{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;border-radius:12px;border:1px solid var(--line);background:#000}
+.pv iframe{position:absolute;left:0;top:0;width:1600px;height:900px;border:0;transform-origin:0 0;pointer-events:none}
+.p-label{font:600 12px/1 var(--display);letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+.p-notes{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 22px;font-size:20px;line-height:1.5;overflow:auto;flex:1}
+.p-notes .nt [data-k]{padding-left:132px}
+.p-notes .nt [data-k]::before{font-size:13px}
+.p-nav{display:flex;gap:10px;flex-wrap:wrap}
+.p-warn{grid-column:1/-1;padding:14px 18px;border:1px solid var(--bad);background:var(--bad-soft);border-radius:12px;font-size:17px}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<div id="world" data-mode="cover" aria-hidden="true">
+  <div class="sky"><div class="orb"></div></div>
+  <div class="horizon"></div>
+  <div class="floor"><div class="floor-grid"></div></div>
+  <svg class="mtn mtn-l" viewBox="0 0 740 150"><polygon points="0,148 178,2 738,148"/><polyline points="178,2 100,148"/><polyline points="178,2 392,148"/><polyline points="350,46 392,148"/><polyline points="350,46 738,148" stroke-dasharray="4 5"/></svg>
+  <svg class="mtn mtn-r" viewBox="0 0 540 110"><polygon points="0,108 400,2 538,108"/><polyline points="400,2 250,108"/><polyline points="400,2 460,108"/><polyline points="250,40 0,108" stroke-dasharray="4 5"/></svg>
+</div>
+
+<main id="stage">
+
+<!-- 1 · Portada -->
+<section class="slide cover" data-mode="cover" data-rise="0.78" data-min="0.5" data-title="Portada">
+  <p class="kicker">Charla técnica · Backend</p>
+  <h1>¿Te viene bien<br>el <em>martes</em>?</h1>
+  <p class="lead">Calendarización y reservas vistas desde el backend: tipos, problemas y técnicas para cuando te toque.</p>
+  <p class="byline">Santiago Ortega · Acid Tango · Viernes, 2 de octubre de 2026</p>
+  <p class="keys"><kbd>→</kbd> avanzar <kbd>P</kbd> presentador <kbd>N</kbd> notas <kbd>O</kbd> índice <kbd>F</kbd> pantalla completa</p>
+  <aside class="notes">
+    <p data-k="idea">Tono de la charla: no es una masterclass, es para abrir la cabeza sobre un problema que parece trivial.</p>
+    <p data-k="decir">Preséntate en 20 segundos. "¿Te viene bien el martes?" es la pregunta más fácil de hacer y una de las más difíciles de responder bien en software.</p>
+    <p data-k="accion">Antes de compartir pantalla, pulsa P para abrir la vista de presentador y llévala a tu otra pantalla. Comparte solo esta ventana.</p>
+    <p data-k="pasar">En cuanto termines la presentación personal.</p>
+  </aside>
+</section>
+
+<!-- 2 · Calentamiento -->
+<section class="slide" data-min="2" data-title="Calentamiento: ¿cuántas horas tiene un día?">
+  <p class="kicker">Calentamiento</p>
+  <h2 class="title">¿Cuántas horas tiene el domingo 25&nbsp;de&nbsp;octubre de&nbsp;2026 en&nbsp;Madrid?</h2>
+  <div class="quiz" id="quiz">
+    <button class="opt" data-v="23"><b>23</b><span>horas</span></button>
+    <button class="opt" data-v="24"><b>24</b><span>horas, como todos</span></button>
+    <button class="opt" data-v="25"><b>25</b><span>horas</span></button>
+    <button class="opt" data-v="dep"><b>Depende</b><span>de dónde lo mires</span></button>
+  </div>
+  <div class="quiz-reveal" id="quiz-reveal" hidden>
+    <div class="hours" id="hours"></div>
+    <p class="body">Fin del <dfn data-t="dst">horario de verano</dfn>: a las 03:00 los relojes vuelven a las 02:00. Todo lo que ocurre entre las 02:00 y las 02:59 ocurre <strong class="hl">dos veces</strong>. Y el 29 de marzo, las 02:30 ni siquiera existieron.</p>
+  </div>
+  <aside class="notes">
+    <p data-k="idea">El tiempo no es un número que sube de uno en uno.</p>
+    <p data-k="decir">Pide que levanten la mano por cada opción. Casi todos dirán 24. Respuesta: 25. "Depende" también vale, porque en Buenos Aires ese día tiene 24.</p>
+    <p data-k="accion">Clic en la opción más votada: se marcan la correcta y la tira de 25 horas, calculada en vivo. Señala las dos "02".</p>
+    <p data-k="pasar">Cuando hayas dicho que faltan tres semanas para ese domingo y que, si algo vuestro reserva "a las 02:30", ese día hay dos.</p>
+  </aside>
+</section>
+
+<!-- 3 · Tesis -->
+<section class="slide thesis" data-min="1" data-title="La idea de hoy">
+  <p class="kicker">La idea de hoy</p>
+  <p class="statement">Reservar parece un <dfn data-t="crud">CRUD</dfn>.</p>
+  <p class="statement dim" data-step="1">En realidad es concurrencia, zonas horarias y sistemas distribuidos disfrazados de formulario.</p>
+  <div class="map" data-step="2">
+    <span><b>01</b>Tipos de reserva</span>
+    <span><b>02</b>Disponibilidad</span>
+    <span><b>03</b>Problemas y técnicas</span>
+    <span><b>04</b>¿Comprar o construir?</span>
+  </div>
+  <aside class="notes">
+    <p data-k="idea">Un formulario con fecha, hora y botón "Reservar" esconde tres problemas duros.</p>
+    <p data-k="decir">Todo lo que viene es una forma en que ese CRUD se rompe, y la técnica de backend para que no lo haga.</p>
+    <p data-k="accion">→ muestra la segunda frase. → muestra el mapa de la charla.</p>
+    <p data-k="pasar">Tras leer el mapa en voz alta.</p>
+  </aside>
+</section>
+
+<!-- 4 · Sección 01 -->
+<section class="slide section" data-mode="section" data-rise="0.95" data-min="0.3" data-section="01 · Tipos de reserva" data-title="01 · Tipos de reserva">
+  <p class="num">01</p>
+  <h2 class="title">Tipos de reserva</h2>
+  <p class="lead">No todas las reservas son una cita con el médico.</p>
+  <aside class="notes">
+    <p data-k="idea">Antes de elegir herramienta o modelo de datos, identifica qué tipo de reserva tienes.</p>
+    <p data-k="pasar">Enseguida.</p>
+  </aside>
+</section>
+
+<!-- 5 · Ejes -->
+<section class="slide" data-min="2.5" data-section="01 · Tipos de reserva" data-title="Seis preguntas que cambian el modelo">
+  <p class="kicker">01 · Tipos de reserva</p>
+  <h2 class="title">Seis preguntas que cambian el modelo de datos</h2>
+  <div class="tax">
+    <div class="tax-domains" id="tax-domains" role="group" aria-label="Elige un dominio"></div>
+    <dl class="tax-grid" id="tax-grid"></dl>
+    <p class="tax-note" id="tax-note"></p>
+  </div>
+  <aside class="notes">
+    <p data-k="idea">Cada eje cambia tablas, restricciones y flujos. Casi ningún sistema real es de un solo tipo.</p>
+    <p data-k="decir">Pregunta antes de clicar: "¿un hotel reserva una habitación concreta?". No: reserva un tipo y la habitación se asigna al llegar.</p>
+    <p data-k="accion">Clic en Hotel, Restaurante (mesas combinables) y Clase de yoga (plazas y recurrente). Vuelve a Terapia online.</p>
+    <p data-k="pasar">Tras volver a Terapia online.</p>
+  </aside>
+</section>
+
+<!-- 6 · Sección 02 -->
+<section class="slide section" data-mode="section" data-rise="1" data-min="0.3" data-section="02 · Disponibilidad" data-title="02 · Disponibilidad">
+  <p class="num">02</p>
+  <h2 class="title">Disponibilidad</h2>
+  <p class="lead">La disponibilidad no se guarda: se calcula.</p>
+  <aside class="notes">
+    <p data-k="idea">Error típico: una tabla con una fila por hueco libre. Se desincroniza en cuanto alguien cambia su horario o se va de vacaciones.</p>
+    <p data-k="pasar">Tras decir la frase.</p>
+  </aside>
+</section>
+
+<!-- 7 · Capas -->
+<section class="slide" data-min="3" data-section="02 · Disponibilidad" data-title="Huecos que sobreviven a todas las capas">
+  <p class="kicker">02 · Disponibilidad</p>
+  <h2 class="title">Un hueco es lo que sobrevive a todas las capas</h2>
+  <div class="av" id="av">
+    <div class="av-head">
+      <p class="formula">huecos = <b><dfn data-t="rejilla">rejilla</dfn></b> ∩ (<b>horario</b> − <dfn data-t="antelacion">antelación</dfn> − reservas − <dfn data-t="buffer">buffers</dfn> − <dfn data-t="timeoff">ausencias</dfn> − <dfn data-t="busy">externos</dfn>)</p>
+      <div class="seg" id="av-dur" role="group" aria-label="Duración de la sesión">
+        <button data-d="50" aria-pressed="true">50'</button><button data-d="60" aria-pressed="false">60'</button><button data-d="90" aria-pressed="false">90'</button>
+      </div>
+    </div>
+    <div class="av-scale"><div></div><div class="track" id="av-scale"></div></div>
+    <div id="av-lanes" class="stack" style="gap:8px"></div>
+    <div class="av-result">
+      <div class="av-count"><b id="av-n">0</b><span id="av-n-lbl">huecos</span></div>
+      <div class="chips" id="av-chips"></div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p data-k="idea">La disponibilidad es un cálculo por capas. Cada capa se come huecos.</p>
+    <p data-k="decir">Truco del buffer: 15 − (duración mod 15). Así el siguiente hueco cae en la rejilla y siempre hay descanso: 50' → 10', 60' → 15'.</p>
+    <p data-k="accion">Empieza con solo horario y rejilla: 30 huecos. Activa en orden antelación, reservas, buffers, ausencias y externos: quedan 5. Desmarca la rejilla (explotan los huecos, ninguno "bonito") y vuelve a marcarla.</p>
+    <p data-k="pasar">Tras decir "de 30 a 5".</p>
+  </aside>
+</section>
+
+<!-- 8 · Sección 03 -->
+<section class="slide section" data-mode="section" data-rise="0.9" data-min="0.3" data-section="03 · Problemas y técnicas" data-title="03 · Problemas y técnicas">
+  <p class="num">03</p>
+  <h2 class="title">Problemas y técnicas</h2>
+  <p class="lead">Los típicos, y los que te despiertan a las 3 de la mañana. Dos veces, si es octubre.</p>
+  <aside class="notes">
+    <p data-k="idea">Seis problemas, cada uno con su técnica.</p>
+    <p data-k="decir">El tiempo, las carreras, reservar sin pagar, los reintentos, las dos fuentes de verdad y los calendarios de terceros.</p>
+    <p data-k="pasar">Tras enumerarlos.</p>
+  </aside>
+</section>
+
+<!-- 9 · Zonas horarias -->
+<section class="slide" data-min="2.5" data-section="03 · Problemas y técnicas" data-title="El tiempo no es un número">
+  <p class="kicker">03 · Problemas · El tiempo</p>
+  <h2 class="title">"Todos los lunes a las 16:00" no es un instante</h2>
+  <div class="cols" style="grid-template-columns:1fr 1.2fr;gap:52px">
+    <ul class="list">
+      <li>Guarda instantes en <dfn data-t="utc">UTC</dfn>. Nunca fechas sin zona.</li>
+      <li>Guarda la <dfn data-t="iana">zona IANA</dfn> de quien define la regla: <code>Europe/Madrid</code>, no un <dfn data-t="offset">offset</dfn> como <code>+02:00</code>.</li>
+      <li>Las <dfn data-t="recurrencia">recurrencias</dfn> se guardan en hora local y se convierten a UTC al leerlas.</li>
+      <li>Cada persona ve la hora en su zona, y se le avisa cuando cambia.</li>
+    </ul>
+    <div class="stack tz">
+      <div class="row"><span class="small">¿Cómo lo guardo?</span>
+        <div class="seg" id="tz-mode" role="group" aria-label="Estrategia de guardado">
+          <button data-m="utc" aria-pressed="true">UTC fijo</button><button data-m="local" aria-pressed="false">Hora local + zona</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Lunes</th><th>En BD (UTC)</th><th>Profesional · Madrid</th><th>Cliente · Nueva York</th></tr></thead>
+        <tbody id="tz-body"></tbody>
+      </table>
+      <p class="small" id="tz-note"></p>
+    </div>
+  </div>
+  <aside class="notes">
+    <p data-k="idea">Instantes en UTC; reglas en hora local más zona.</p>
+    <p data-k="decir">Con "UTC fijo" la cita se mueve a las 15:00 en cuanto cambia la hora: el bug clásico. Con "hora local + zona" la profesional siempre ve 16:00, pero el cliente de Nueva York ve 10, 11, 10, 10: Europa cambia el 25 de octubre y EE. UU. el 1 de noviembre. Es correcto; toca avisar, no "arreglarlo".</p>
+    <p data-k="accion">Con "UTC fijo", señala el 26 de octubre en rojo. Cambia a "Hora local + zona" y señala el 11:00 amarillo de Nueva York.</p>
+    <p data-k="pasar">Tras "es correcto, pero hay que avisar".</p>
+  </aside>
+</section>
+
+<!-- 10 · Carrera -->
+<section class="slide" data-min="3" data-section="03 · Problemas y técnicas" data-title="Dos personas, un hueco">
+  <p class="kicker">03 · Problemas · Concurrencia</p>
+  <h2 class="title">Dos personas, un hueco, el mismo milisegundo</h2>
+  <div class="row" style="justify-content:space-between">
+    <div class="seg" id="race-mode" role="group" aria-label="Estrategia">
+      <button data-m="if" aria-pressed="true">Un if en el código</button><button data-m="lock" aria-pressed="false">Lock pesimista</button><button data-m="exclude" aria-pressed="false">Constraint en BD</button>
+    </div>
+    <button class="btn solid" id="race-run">Lanzar las dos peticiones ▶</button>
+  </div>
+  <div class="race-wrap">
+    <div class="stack" style="gap:14px">
+      <div class="race" id="race"></div>
+      <p class="race-out" id="race-out"></p>
+    </div>
+    <div class="tech" id="race-tech"></div>
+  </div>
+  <aside class="notes">
+    <p data-k="idea">Comprobar y luego insertar son dos pasos; entre medias entra otro. La base de datos tiene que ser el árbitro.</p>
+    <p data-k="decir">Nadie hace nada mal por separado; el fallo está en el hueco entre comprobar y actuar. El lock pone en fila las reservas del mismo recurso. El constraint mueve la garantía al esquema: da igual qué código inserte.</p>
+    <p data-k="accion">"Un if" → Lanzar (dos reservas). "Lock pesimista" → Lanzar. "Constraint en BD" → Lanzar, y comenta el SQL de la derecha.</p>
+    <p data-k="pasar">Tras el tercer lanzamiento.</p>
+  </aside>
+</section>
+
+<!-- 11 · Estados + hold -->
+<section class="slide sm-slide" data-min="2.5" data-section="03 · Problemas y técnicas" data-title="Reservar no es pagar">
+  <p class="kicker">03 · Problemas · Reservar ≠ pagar</p>
+  <h2 class="title">Una reserva es una <dfn data-t="estados">máquina de estados</dfn></h2>
+  <p class="small" style="font-size:20px">Mientras pagas, el hueco está en <dfn data-t="hold">hold</dfn>: una reserva provisional con <dfn data-t="ttl">TTL</dfn>. Truco: TTL del hold = ventana de pago <strong class="hl">+ 1 minuto</strong>, para que quien paga en el último segundo conserve su hueco.</p>
+  <div class="sm" id="sm">
+    <svg viewBox="0 0 1360 320" role="img" aria-label="Estados de una reserva">
+      <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#75736C"/></marker></defs>
+      <g class="edge" data-e="PP-PA"><path d="M282 60 L568 60" marker-end="url(#ah)"/><text x="425" y="46">pago confirmado</text></g>
+      <g class="edge" data-e="PA-AP"><path d="M792 60 L1078 60" marker-end="url(#ah)"/><text x="935" y="46">profesional acepta</text></g>
+      <g class="edge" data-e="PP-EX"><path d="M170 102 L170 228" marker-end="url(#ah)"/><text x="245" y="170">caduca el hold</text></g>
+      <g class="edge" data-e="PA-CA"><path d="M680 102 L680 228" marker-end="url(#ah)"/><text x="620" y="170">cancelar</text></g>
+      <g class="edge" data-e="AP-CA"><path d="M1110 102 L796 240" marker-end="url(#ah)"/><text x="990" y="190">cancelar</text></g>
+      <g class="edge" data-e="AP-RE"><path d="M1190 102 L1190 228" marker-end="url(#ah)"/><text x="1262" y="170">reprogramar</text></g>
+      <g class="node" data-n="PP"><rect x="58" y="20" width="224" height="80" rx="14"/><text x="170" y="56">Pendiente de pago</text><text class="sub" x="170" y="80">hold activo</text></g>
+      <g class="node" data-n="PA"><rect x="568" y="20" width="224" height="80" rx="14"/><text x="680" y="56">Pend. de aprobación</text><text class="sub" x="680" y="80">pagada</text></g>
+      <g class="node" data-n="AP"><rect x="1078" y="20" width="224" height="80" rx="14"/><text x="1190" y="56">Confirmada</text><text class="sub" x="1190" y="80">en agenda</text></g>
+      <g class="node" data-n="EX"><rect x="58" y="230" width="224" height="80" rx="14"/><text x="170" y="266">Expirada</text><text class="sub" x="170" y="290">hueco liberado</text></g>
+      <g class="node" data-n="CA"><rect x="568" y="230" width="224" height="80" rx="14"/><text x="680" y="266">Cancelada</text><text class="sub" x="680" y="290">con o sin reembolso</text></g>
+      <g class="node" data-n="RE"><rect x="1078" y="230" width="224" height="80" rx="14"/><text x="1190" y="266">Reprogramada</text><text class="sub" x="1190" y="290">nace otra reserva</text></g>
+    </svg>
+  </div>
+  <div class="row" id="sm-events"></div>
+  <div class="sm-foot">
+    <p class="sm-log" id="sm-log"></p>
+    <div data-step="1">
+      <p class="body"><strong class="badc">¿Y si el pago llega en el minuto 64?</strong> Ya has cobrado y el hueco puede ser de otro.</p>
+      <div class="opts"><span>Reembolso automático</span><span>Reintentar el mismo hueco</span><span>Ofrecer otro</span><span>Avisar a soporte</span></div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p data-k="idea">Estados explícitos y transiciones permitidas; todo lo demás está prohibido. El hold con TTL es la técnica para "reservar mientras pagas".</p>
+    <p data-k="decir">Fíjate en que cada transición toca cosas fuera de tu base de datos: pasarela de pago, calendario, emails. De ahí salen los dos problemas siguientes.</p>
+    <p data-k="accion">Clic en "Pago confirmado", "Profesional acepta" y "Reprogramar". "Reiniciar" y luego "Caduca el hold". → muestra la pregunta del minuto 64 y pide respuestas al público.</p>
+    <p data-k="pasar">Tras dos o tres respuestas. Lo importante: decidirlo antes de que pase, porque las pasarelas reintentan webhooks durante días.</p>
+  </aside>
+</section>
+
+<!-- 12 · Idempotencia -->
+<section class="slide" data-min="2" data-section="03 · Problemas y técnicas" data-title="Todo llega dos veces">
+  <p class="kicker">03 · Problemas · Reintentos</p>
+  <h2 class="title">Todo lo que viene de fuera llega dos veces</h2>
+  <div class="cols" style="grid-template-columns:1.05fr 1fr;gap:48px">
+    <div class="techs">
+      <div><b>Lock + comprobar estado</b><span>Bloquea la fila y mira si ya lo procesaste antes de hacer nada. Si ya está pagada, respondes 200 y sales.</span></div>
+      <div><b>Clave de idempotencia</b><span>El cliente manda una <dfn data-t="idemkey">Idempotency-Key</dfn>; si se repite, devuelves la respuesta de la primera vez.</span></div>
+      <div><b>Reintenta solo lo seguro</b><span>Consultas: con <dfn data-t="backoff">backoff</dfn> y <dfn data-t="jitter">jitter</dfn>. Crear una reserva: nunca a ciegas, porque un error 5xx puede haberla creado.</span></div>
+    </div>
+    <div class="stack">
+      <label class="chk"><input type="checkbox" id="wh-guard"><span>Con lock + comprobación de estado</span></label>
+      <div class="wh" id="wh">
+        <div><b id="wh-in">0</b><span><dfn data-t="webhook">webhooks</dfn> recibidos</span></div>
+        <div><b id="wh-book">0</b><span>reservas creadas</span></div>
+        <div><b id="wh-mail">0</b><span>emails al cliente</span></div>
+      </div>
+      <div class="row"><button class="btn solid" id="wh-send">La pasarela reenvía el webhook</button><button class="btn ghost" id="wh-reset">Reiniciar</button></div>
+      <p class="small">Las pasarelas de pago reintentan durante días si no respondes a tiempo, y pueden entregar el mismo evento en paralelo.</p>
+    </div>
+  </div>
+  <aside class="notes">
+    <p data-k="idea"><dfn data-t="idempotencia">Idempotencia</dfn>: hacer algo dos veces deja el sistema igual que hacerlo una.</p>
+    <p data-k="decir">En Aurela el webhook de pago bloquea la fila y mira si ya está pagada; y la llamada que crea la reserva en el proveedor no se reintenta ante un 5xx, porque podría duplicarla.</p>
+    <p data-k="accion">Sin marcar el check, pulsa "reenvía" tres veces: 3 reservas, 3 emails. Marca el check y repite: 1.</p>
+    <p data-k="pasar">Tras repasar las tres técnicas de la izquierda.</p>
+  </aside>
+</section>
+
+<!-- 13 · Saga -->
+<section class="slide" data-min="2.5" data-section="03 · Problemas y técnicas" data-title="Dos fuentes de verdad">
+  <p class="kicker">03 · Problemas · Dos fuentes de verdad</p>
+  <h2 class="title">Tu base de datos y la del proveedor no comparten <dfn data-t="transaccion">transacción</dfn></h2>
+  <div class="row"><label class="chk"><input type="checkbox" id="saga-f1"><span>Falla cancelar la antigua</span></label><label class="chk"><input type="checkbox" id="saga-f2" disabled><span>Falla también la compensación</span></label><button class="btn solid" id="saga-run">Reprogramar ▶</button></div>
+  <div class="saga" id="saga">
+    <div class="step" data-k="new"><b>1 · Reservar la nueva</b><span>En el proveedor, a la hora nueva</span></div>
+    <div class="arr">→</div>
+    <div class="step" data-k="old"><b>2 · Cancelar la antigua</b><span>En el proveedor</span></div>
+    <div class="arr">→</div>
+    <div class="step" data-k="db"><b>3 · Commit</b><span>Guardar el cambio en nuestra base de datos</span></div>
+    <div class="arr v">↓ si falla</div>
+    <div class="step" data-k="comp" style="grid-column:3"><b>2b · <dfn data-t="compensacion">Compensar</dfn></b><span>Cancelar la nueva y hacer rollback</span></div>
+    <div class="arr" style="grid-column:4">→</div>
+    <div class="step" data-k="cs" style="grid-column:5"><b>2c · Alarma</b><span>Aviso a soporte y métrica</span></div>
+  </div>
+  <p class="saga-out" id="saga-out"></p>
+  <aside class="notes">
+    <p data-k="idea">No hay <dfn data-t="distribuida">transacción distribuida</dfn> gratis: hay orden de pasos, compensación y alarma. Es el patrón <dfn data-t="saga">saga</dfn>.</p>
+    <p data-k="decir">¿Por qué reservar la nueva antes de cancelar la antigua? Porque si falla a medias prefieres un hueco de más que un cliente sin cita. Ordena los pasos para que el fallo deje el estado menos dañino.</p>
+    <p data-k="accion">Reprogramar (todo bien). Marca "Falla cancelar la antigua" → Reprogramar. Marca también "Falla la compensación" → Reprogramar.</p>
+    <p data-k="pasar">Tras leer el resultado de la alarma.</p>
+  </aside>
+</section>
+
+<!-- 14 · Calendarios externos -->
+<section class="slide" data-min="1.5" data-section="03 · Problemas y técnicas" data-title="Calendarios externos: fail-open o fail-closed">
+  <p class="kicker">03 · Problemas · Calendarios de terceros</p>
+  <h2 class="title">Cuando Google no contesta, ¿enseñas huecos o no?</h2>
+  <div class="cols" style="grid-template-columns:1fr 1fr;gap:56px">
+    <div class="stack">
+      <p class="body">Si el profesional conecta su Google u Outlook, cada consulta de huecos depende de un tercero: pides sus tramos ocupados (<dfn data-t="busy">free/busy</dfn>) y filtras.</p>
+      <p class="body">Ese tercero a veces tarda, falla o devuelve datos viejos. Pon un límite de tiempo y decide qué pasa al superarlo.</p>
+      <p class="body" data-step="1"><strong class="hl"><dfn data-t="failopen">Fail-open</dfn> o fail-closed</strong> es una decisión de producto. Lo malo es no haberla tomado.</p>
+    </div>
+    <div class="stack">
+      <div class="row">
+        <label class="chk"><input type="checkbox" id="fo-down"><span>Google tarda más de 12 s</span></label>
+        <div class="seg" id="fo-mode" role="group" aria-label="Política"><button data-m="open" aria-pressed="true">Fail-open</button><button data-m="closed" aria-pressed="false">Fail-closed</button></div>
+      </div>
+      <div class="fo-cal" id="fo-cal"></div>
+      <p class="small" id="fo-note"></p>
+    </div>
+  </div>
+  <aside class="notes">
+    <p data-k="idea">Todo lo que depende de un tercero necesita un límite de tiempo y una política de fallo decidida.</p>
+    <p data-k="decir">Fail-open: sigues vendiendo, con riesgo de reservar encima de un evento personal. Fail-closed: cero conflictos, pero el cliente ve el calendario vacío y se va. En Aurela elegimos fail-open, porque el proveedor vuelve a comprobar al crear la reserva.</p>
+    <p data-k="accion">Marca "Google tarda" y alterna entre Fail-open y Fail-closed. → muestra la última frase.</p>
+    <p data-k="pasar">Tras "lo malo es no haberla tomado".</p>
+  </aside>
+</section>
+
+<!-- 15 · Contrato -->
+<section class="slide" data-min="1" data-section="03 · Problemas y técnicas" data-title="Una reserva es un contrato">
+  <p class="kicker">03 · Problemas · Datos que cambian</p>
+  <h2 class="title">Una reserva es un contrato, no una vista</h2>
+  <p class="lead">Técnica: <dfn data-t="snapshot">snapshot</dfn>. Lo que era verdad al reservar se copia en la reserva y no se vuelve a leer de su origen.</p>
+  <table class="snap">
+    <tr><td>Precio</td><td>El profesional cambia su tarifa entre que reservas y pagas.</td></tr>
+    <tr><td>Duración</td><td>La empresa cliente cambia la duración de sus sesiones a mitad de mes.</td></tr>
+    <tr><td>Promoción</td><td>La campaña se queda sin cupo mientras estás pagando.</td></tr>
+    <tr><td>Quién paga</td><td>El cliente deja la empresa, pero esta sesión la pagó la empresa.</td></tr>
+  </table>
+  <aside class="notes">
+    <p data-k="idea">Si un dato puede cambiar después y la reserva depende de su valor en ese momento, es un snapshot.</p>
+    <p data-k="decir">Todas estas filas salieron de casos reales. Comenta dos, no todas.</p>
+    <p data-k="pasar">Al minuto.</p>
+  </aside>
+</section>
+
+<!-- 16 · Otros monstruos -->
+<section class="slide" data-min="1" data-section="03 · Problemas y técnicas" data-title="Otros monstruos">
+  <p class="kicker">03 · Problemas · Ronda rápida</p>
+  <h2 class="title">Otros monstruos que conviene conocer</h2>
+  <div class="monsters">
+    <div><b>Recurrencias con excepciones</b><span><dfn data-t="recurrencia">RRULE</dfn> + <dfn data-t="exdate">EXDATE</dfn>. "Solo esta" frente a "esta y las siguientes".</span></div>
+    <div><b>Recordatorios que se mueven</b><span>Reprogramar la cita es reprogramar sus tareas. Y cancelarlas.</span></div>
+    <div><b>Políticas de cancelación</b><span>24 h, reembolsos parciales, y quién canceló a quién.</span></div>
+    <div><b><dfn data-t="noshow">No-shows</dfn></b><span>Penalizaciones, bloqueos y <dfn data-t="overbooking">overbooking</dfn> controlado, como las aerolíneas.</span></div>
+    <div><b>Recursos combinados</b><span>Profesional + sala + equipo: el hueco es la intersección de tres calendarios.</span></div>
+    <div><b>Listas de espera</b><span>Quién entra cuando alguien cancela, y cuánto tiempo tiene para aceptar.</span></div>
+  </div>
+  <aside class="notes">
+    <p data-k="idea">No profundizar: que les suene cuando aparezca en un proyecto.</p>
+    <p data-k="accion">Pregunta: "¿quién se ha peleado con alguno?".</p>
+    <p data-k="pasar">Tras una respuesta o al minuto.</p>
+  </aside>
+</section>
+
+<!-- 17 · Sección 04 -->
+<section class="slide section" data-mode="section" data-rise="0.75" data-min="0.3" data-section="04 · ¿Comprar o construir?" data-title="04 · ¿Comprar o construir?">
+  <p class="num">04</p>
+  <h2 class="title">¿Comprar o construir?</h2>
+  <p class="lead">La pregunta del próximo kick-off. Spoiler: casi siempre, las dos cosas.</p>
+  <aside class="notes">
+    <p data-k="idea">Cerrar con la decisión que tendrán que tomar ellos.</p>
+    <p data-k="pasar">Enseguida.</p>
+  </aside>
+</section>
+
+<!-- 18 · Caso real -->
+<section class="slide" data-min="2" data-section="04 · ¿Comprar o construir?" data-title="Caso real">
+  <p class="kicker">04 · Caso real</p>
+  <h2 class="title">Aurela: reservas de terapia sobre Cal.com</h2>
+  <div class="cols pc" style="gap:36px">
+    <div class="panel gain">
+      <h3 class="okc">Lo que nos dio</h3>
+      <ul class="list">
+        <li>Huecos, buffers y antelación calculados por ellos</li>
+        <li>Sincronización con Google, Outlook y Apple</li>
+        <li>Videollamada y holds de serie</li>
+        <li>Horarios y ausencias de cada profesional</li>
+      </ul>
+    </div>
+    <div class="panel cost">
+      <h3 class="badc">Lo que nos costó</h3>
+      <ul class="list">
+        <li>Errores que hay que interpretar por el texto del mensaje</li>
+        <li>Crear una reserva no es idempotente</li>
+        <li>Pasar de hold a reserva es soltar y volver a coger: no es atómico</li>
+        <li>Bugs de terceros que parcheas tú</li>
+      </ul>
+    </div>
+  </div>
+  <div class="stack" style="gap:12px">
+    <p class="small"><strong class="hl">La técnica que más nos ayudó:</strong> un <dfn data-t="conector">conector</dfn> propio entre el dominio y el proveedor.</p>
+    <div class="conn-line">
+      <span class="box">Dominio<small>reservas, pagos, estados</small></span><i>→</i>
+      <span class="box key">Conector<small>interfaz propia</small></span><i>→</i>
+      <span class="box">Fichero<small>desarrollo y tests</small></span>
+      <span class="box">MS Bookings<small>primera versión</small></span>
+      <span class="box">Cal.com<small>producción</small></span>
+    </div>
+  </div>
+  <aside class="notes">
+    <p data-k="idea">Comprar te da mucho hecho, pero pagas en integración. Envolver al proveedor es lo que te deja cambiar de opinión.</p>
+    <p data-k="decir">No es una crítica a Cal.com: es el precio normal de delegar el núcleo en un tercero, y nos ahorró meses. Gracias al conector pasamos de MS Bookings a Cal.com sin tocar el dominio, y el conector de fichero permite desarrollar y testear sin red. Aviso: <dfn data-t="leaky">las abstracciones se filtran</dfn>; asúmelo y documenta dónde.</p>
+    <p data-k="accion">Repasa las dos columnas y termina señalando el conector de abajo.</p>
+    <p data-k="pasar">Tras "cambiamos de proveedor sin tocar el dominio".</p>
+  </aside>
+</section>
+
+<!-- 19 · Build vs buy -->
+<section class="slide" data-min="2" data-section="04 · ¿Comprar o construir?" data-title="Ocho preguntas para el kick-off">
+  <p class="kicker">04 · ¿Comprar o construir?</p>
+  <h2 class="title">Ocho preguntas para el kick-off</h2>
+  <div class="bb">
+    <div class="bb-q" id="bb-q"></div>
+    <div class="panel">
+      <div class="meter"><i id="bb-needle" style="left:50%"></i></div>
+      <div class="meter-l"><span>Comprar</span><span>Híbrido</span><span>Construir</span></div>
+      <p class="verdict" id="bb-verdict">Híbrido</p>
+      <p class="verdict-sub" id="bb-sub"></p>
+      <div class="row" style="margin-top:22px"><button class="btn" id="bb-case">Responder como el caso real</button><button class="btn ghost" id="bb-reset">Reiniciar</button></div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p data-k="idea">No hay respuesta universal; hay preguntas que la inclinan.</p>
+    <p data-k="decir">Las ponderaciones son opinables a propósito; sirven para abrir conversación, no para decidir.</p>
+    <p data-k="accion">Contesta en voz alta con un proyecto que conozca el público (o pide a alguien que responda). Después, "Responder como el caso real": sale Híbrido.</p>
+    <p data-k="pasar">Tras el veredicto.</p>
+  </aside>
+</section>
+
+<!-- 20 · Modelo propio -->
+<section class="slide" data-min="1.5" data-section="04 · ¿Comprar o construir?" data-title="Un modelo mínimo propio">
+  <p class="kicker">04 · Si lo construyes</p>
+  <h2 class="title">Un modelo mínimo que aguanta</h2>
+  <div class="cols" style="grid-template-columns:1fr 1fr;gap:48px;align-items:start">
+    <div class="er">
+      <div><b>resource</b><span>nombre · zona horaria</span></div>
+      <div><b>availability_rule</b><span>día · inicio y fin en hora local<br>válida desde · hasta</span></div>
+      <div><b>availability_exception</b><span>rango · tipo<br>(ausencia, festivo, extra)</span></div>
+      <div><b>outbox</b><span>mensaje · creado · enviado</span></div>
+      <div class="wide"><b>booking</b><span>recurso · rango bloqueado · estado<br>caducidad del hold · clave de idempotencia<br>precio · duración · … (snapshots)</span></div>
+    </div>
+    <ul class="list">
+      <li>Reglas de horario en hora local + zona del recurso.</li>
+      <li>Reservas y ausencias como rangos UTC (<dfn data-t="rango">tstzrange</dfn>), <dfn data-t="semiabierto">semiabiertos</dfn>.</li>
+      <li><dfn data-t="exclude">Constraint EXCLUDE</dfn> sobre el rango bloqueado: sesión + buffer.</li>
+      <li>Hold y reserva son la misma fila cambiando de estado.</li>
+      <li><dfn data-t="outbox">Outbox</dfn> para avisar fuera (emails, Google) después del commit.</li>
+    </ul>
+  </div>
+  <aside class="notes">
+    <p data-k="idea">Con cinco tablas y Postgres llegas muy lejos.</p>
+    <p data-k="decir">Fíjate: el hold y la reserva en la misma fila eliminan el "soltar y volver a coger" del caso real. Lo que no es mínimo es sincronizar con Google y Outlook; ahí un proveedor aporta más.</p>
+    <p data-k="pasar">Tras la última técnica (outbox).</p>
+  </aside>
+</section>
+
+<!-- 21 · Checklist -->
+<section class="slide" data-min="1.5" data-section="Para llevarse" data-title="Checklist">
+  <div class="row" style="justify-content:space-between"><p class="kicker">Para llevarse</p><span class="check-count" id="check-n">0 / 10</span></div>
+  <h2 class="title">Checklist para el próximo proyecto con calendario</h2>
+  <ul class="check" id="check">
+    <li><button aria-pressed="false"><span>Guardo instantes en UTC y la zona IANA de cada recurso.</span></button></li>
+    <li><button aria-pressed="false"><span>Las recurrencias viven en hora local y se convierten al leer.</span></button></li>
+    <li><button aria-pressed="false"><span>La base de datos impide los solapes; el código no decide solo.</span></button></li>
+    <li><button aria-pressed="false"><span>Mis intervalos son semiabiertos: <code>[inicio, fin)</code>.</span></button></li>
+    <li><button aria-pressed="false"><span>Cada hold tiene caducidad y alguien lo limpia.</span></button></li>
+    <li><button aria-pressed="false"><span>Todo lo que llega de fuera es idempotente.</span></button></li>
+    <li><button aria-pressed="false"><span>Nada sale hacia fuera antes del commit.</span></button></li>
+    <li><button aria-pressed="false"><span>Cada paso externo tiene compensación y alarma.</span></button></li>
+    <li><button aria-pressed="false"><span>Los datos del momento de reservar se congelan en la reserva.</span></button></li>
+    <li><button aria-pressed="false"><span>Tengo tests con el reloj congelado el 29/03 y el 25/10.</span></button></li>
+  </ul>
+  <aside class="notes">
+    <p data-k="idea">Resumen accionable de toda la charla.</p>
+    <p data-k="accion">Marca los puntos mientras los lees rápido, o pide al público que cuente cuántos cumple su proyecto actual.</p>
+    <p data-k="pasar">Al llegar a 10/10.</p>
+  </aside>
+</section>
+
+<!-- 22 · Frase -->
+<section class="slide quote" data-min="0.3" data-section="Para llevarse" data-title="Acid Tango Quotes">
+  <p class="kicker">Acid Tango Quotes</p>
+  <blockquote>El tiempo es el único dato que cambia aunque nadie haga un deploy.</blockquote>
+  <cite>Anónimo, un domingo a las 02:30. La segunda.</cite>
+  <aside class="notes">
+    <p data-k="idea">Cierre con guiño al calentamiento.</p>
+    <p data-k="pasar">Tras la risa (o el silencio).</p>
+  </aside>
+</section>
+
+<!-- 23 · Gracias -->
+<section class="slide cover" data-mode="cover" data-rise="0.42" data-min="0" data-section="Para llevarse" data-title="Gracias">
+  <p class="kicker">Fin</p>
+  <h1>¡Gracias!</h1>
+  <p class="lead">¿Preguntas? Y si no da tiempo, ¿te viene bien el martes?</p>
+  <aside class="notes">
+    <p data-k="idea">El sol se pone: fin del día.</p>
+    <p data-k="accion">Déjala durante las preguntas. Si preguntan por un término, salta al glosario (siguiente lámina) o pulsa O.</p>
+  </aside>
+</section>
+
+<!-- 24 · Glosario -->
+<section class="slide" data-min="0" data-section="Apéndice" data-title="Glosario">
+  <p class="kicker">Apéndice</p>
+  <h2 class="title">Glosario</h2>
+  <div class="gloss no-swipe" id="gloss"></div>
+  <aside class="notes">
+    <p data-k="idea">Referencia para preguntas. Se desplaza con la rueda del ratón.</p>
+  </aside>
+</section>
+
+<div id="tip" role="tooltip" hidden></div>
+
+<footer class="hud">
+  <img alt="Acid Tango" src="data:image/png;base64,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">
+  <span class="where" id="hud-where"></span>
+  <span class="count" id="hud-count"></span>
+  <button class="navbtn" id="prev" aria-label="Anterior">←</button>
+  <button class="navbtn" id="next" aria-label="Siguiente">→</button>
+</footer>
+</main>
+
+<div id="progress"><i></i></div>
+<div id="notes" hidden></div>
+<nav id="toc" hidden aria-label="Índice de diapositivas"><h4>Índice · <span id="toc-total"></span></h4><ol id="toc-list"></ol></nav>
+<div id="presenter"></div>
+
+<script>
+(() => {
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const pad = n => String(n).padStart(2, "0");
+const hm = m => pad(Math.floor(m / 60)) + ":" + pad(m % 60);
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const params = new URLSearchParams(location.search);
+const MODE = params.has("presenter") ? "presenter" : params.has("embed") ? "embed" : "deck";
+document.body.classList.add("mode-" + MODE);
+
+/* ================= Glosario ================= */
+const GLOSS = {
+  crud: ["CRUD", "Crear, leer, actualizar y borrar: una aplicación básica sobre una tabla, sin lógica especial."],
+  dst: ["Horario de verano (DST)", "Cambio de hora estacional. Crea días de 23 y de 25 horas, y horas que no existen o se repiten."],
+  utc: ["UTC", "Tiempo universal coordinado. La referencia sin horario de verano: guarda aquí los instantes."],
+  iana: ["Zona IANA", "Nombre oficial de una zona horaria, como Europe/Madrid. Incluye su historial de cambios de hora."],
+  offset: ["Offset", "Diferencia con UTC en un momento dado, como +02:00. Cambia con el horario de verano; la zona no."],
+  recurrencia: ["Recurrencia (RRULE)", "Regla que genera citas repetidas, como «todos los lunes a las 16:00». Viene del estándar iCalendar."],
+  exdate: ["EXDATE", "Excepción de una recurrencia: fechas concretas que se saltan («este lunes no»)."],
+  rejilla: ["Rejilla (slot grid)", "Paso fijo en el que pueden empezar las citas: :00, :15, :30, :45."],
+  buffer: ["Buffer", "Tiempo libre obligatorio antes o después de una cita: descanso, desplazamiento, limpieza."],
+  antelacion: ["Antelación mínima", "Cuánto tiempo antes hay que reservar. Evita citas para dentro de diez minutos."],
+  timeoff: ["Ausencia (time off)", "Bloque en el que el recurso no está disponible: vacaciones, médico, festivo."],
+  busy: ["Free/busy", "Consulta a un calendario externo que solo devuelve los tramos ocupados, sin detalles del evento."],
+  carrera: ["Condición de carrera", "Fallo que aparece cuando dos operaciones simultáneas se cruzan y el resultado depende de cuál llega antes."],
+  checkact: ["Check-then-act", "Comprobar una condición y actuar en dos pasos separados. Entre medias, otro puede cambiar el estado."],
+  lock: ["Lock pesimista", "Bloquear una fila antes de trabajar con ella para que nadie más la toque hasta el commit."],
+  forupdate: ["SELECT … FOR UPDATE", "Lectura SQL que bloquea las filas leídas hasta que termina la transacción."],
+  exclude: ["Constraint EXCLUDE", "Restricción de Postgres que impide que dos filas cumplan a la vez una condición, por ejemplo mismo recurso y rangos que se solapan."],
+  gist: ["Índice GiST", "Tipo de índice de Postgres para rangos y geometrías. EXCLUDE lo necesita (extensión btree_gist)."],
+  rango: ["tstzrange", "Tipo de Postgres para un rango de instantes con zona horaria, por ejemplo [10:00, 11:00)."],
+  semiabierto: ["Intervalo semiabierto", "[inicio, fin): incluye el inicio y excluye el fin. Así 10–11 y 11–12 no chocan."],
+  http409: ["409 Conflict", "Respuesta HTTP para «tu petición choca con el estado actual», como un hueco que ya está ocupado."],
+  estados: ["Máquina de estados", "Modelo con estados explícitos y transiciones permitidas entre ellos. Cualquier otra transición está prohibida."],
+  hold: ["Hold", "Reserva provisional que bloquea el hueco mientras el usuario paga o confirma."],
+  ttl: ["TTL", "Time to live: tiempo tras el que algo caduca solo."],
+  webhook: ["Webhook", "Llamada HTTP que un servicio externo (pasarela de pago, calendario) hace a tu API para avisarte de un evento."],
+  idempotencia: ["Idempotencia", "Hacer lo mismo dos veces deja el sistema igual que hacerlo una."],
+  idemkey: ["Idempotency-Key", "Cabecera con un identificador único por operación. Si llega repetida, el servidor devuelve la respuesta anterior en vez de repetir la operación."],
+  backoff: ["Backoff exponencial", "Esperar cada vez más entre reintentos: 1 s, 2 s, 4 s…"],
+  jitter: ["Jitter", "Aleatoriedad añadida a la espera entre reintentos para que muchos clientes no reintenten a la vez."],
+  retryafter: ["429 y Retry-After", "Respuesta de «demasiadas peticiones» con el tiempo que debes esperar antes de volver a intentarlo."],
+  transaccion: ["Transacción", "Bloque de operaciones que se aplica entero (commit) o no se aplica (rollback)."],
+  distribuida: ["Transacción distribuida", "Transacción que abarcase tu base de datos y un servicio externo a la vez. En la práctica no la tienes."],
+  saga: ["Saga", "Secuencia de pasos en la que cada uno tiene su acción de compensación por si falla un paso posterior."],
+  compensacion: ["Compensación", "Acción que deshace el efecto de un paso ya hecho, como cancelar una reserva recién creada."],
+  oncommit: ["Después del commit", "Enviar emails o encolar tareas solo cuando la transacción ya se ha guardado, para no avisar de algo que luego se deshace."],
+  outbox: ["Outbox", "Guardar los mensajes salientes en tu base de datos dentro de la misma transacción y enviarlos después, desde otro proceso."],
+  failopen: ["Fail-open / fail-closed", "Qué haces si falla una comprobación: seguir adelante (open) o bloquear (closed)."],
+  snapshot: ["Snapshot", "Copia de un dato en el momento de la reserva, para que los cambios posteriores no la alteren."],
+  conector: ["Conector (adaptador)", "Interfaz propia que envuelve a un proveedor externo. Para cambiar de proveedor solo cambias el adaptador."],
+  leaky: ["Abstracción que se filtra", "Cuando detalles del proveedor se cuelan por la interfaz que debía ocultarlos."],
+  noshow: ["No-show", "El cliente no se presenta a la cita."],
+  overbooking: ["Overbooking", "Vender más plazas de las que hay, contando con que alguien no vendrá."],
+};
+
+/* ================= Motor de diapositivas ================= */
+const stage = $("#stage"), world = $("#world");
+const slides = $$(".slide", stage);
+const total = slides.length;
+let idx = 0, step = 0;
+let presenterWin = null;
+
+const maxStep = s => Math.max(0, ...$$("[data-step]", s).map(e => +e.dataset.step));
+const sectionOf = i => { for (let k = i; k >= 0; k--) if (slides[k].dataset.section) return slides[k].dataset.section; return ""; };
+const minOf = s => +(s.dataset.min || 0);
+const fmtMin = m => (Math.round(m * 10) / 10).toString().replace(".", ",") + "'";
+const cumStart = []; { let acc = 0; slides.forEach((s, k) => { cumStart[k] = acc; acc += minOf(s); }); cumStart.push(acc); }
+const totalMin = cumStart[total];
+function notesHtml(i) {
+  const s = slides[i], n = $(".notes", s);
+  const head = `<h4>${pad(i + 1)} · ${s.dataset.title || ""} · ${fmtMin(minOf(s))} · empieza en el min ${fmtMin(cumStart[i])}</h4>`;
+  return head + `<div class="nt">${n ? n.innerHTML : "<p>Sin notas.</p>"}</div>`;
+}
+
+function fit() { stage.style.setProperty("--scale", Math.min(innerWidth / 1600, innerHeight / 900)); }
+
+function render() {
+  slides.forEach((s, k) => {
+    s.classList.toggle("is-active", k === idx);
+    s.classList.toggle("is-past", k < idx);
+    s.inert = k !== idx;
+  });
+  const cur = slides[idx];
+  $$("[data-step]", cur).forEach(e => e.classList.toggle("is-shown", +e.dataset.step <= step));
+  world.dataset.mode = cur.dataset.mode || "content";
+  world.style.setProperty("--rise", cur.dataset.rise || 0);
+  $("#hud-where").textContent = sectionOf(idx);
+  $("#hud-count").textContent = pad(idx + 1) + " / " + pad(total);
+  $("#progress i").style.width = (idx / (total - 1) * 100) + "%";
+  $("#notes").innerHTML = notesHtml(idx);
+  $$("#toc-list button").forEach((b, k) => b.setAttribute("aria-current", k === idx));
+  hideTip();
+  if (MODE === "deck") {
+    try { history.replaceState(null, "", "#" + (idx + 1)); } catch (e) {}
+    if (presenterWin && !presenterWin.closed) presenterWin.postMessage({ deck: "state", idx, step }, "*");
+  }
+}
+function go(i, st = 0) {
+  idx = Math.max(0, Math.min(total - 1, i));
+  step = st === "max" ? maxStep(slides[idx]) : Math.min(st, maxStep(slides[idx]));
+  render();
+}
+function next() { if (step < maxStep(slides[idx])) { step++; render(); } else if (idx < total - 1) go(idx + 1); }
+function prev() { if (step > 0) { step--; render(); } else if (idx > 0) go(idx - 1, "max"); }
+const toggle = (el, force) => { el.hidden = force === undefined ? !el.hidden : !force; };
+function fullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  else document.documentElement.requestFullscreen?.().catch(() => {});
+}
+function openPresenter() {
+  const url = location.href.split("#")[0].split("?")[0] + "?presenter";
+  presenterWin = window.open(url, "presentador", "width=1320,height=860");
+}
+
+/* ================= Resaltado de código ================= */
+const KW = new Set(("def return if else elif for in not and or from import class with as None True False raise try except " +
+  "lambda while yield pass is CREATE EXTENSION IF NOT EXISTS ALTER TABLE ADD CONSTRAINT EXCLUDE USING WITH WHERE IN " +
+  "SELECT FROM FOR UPDATE INSERT INTO VALUES BEGIN COMMIT ROLLBACK ON AND OR NULL").split(" "));
+function highlight(src) {
+  const re = /(#[^\n]*|--[^\n]*)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')|\b(\d+(?:\.\d+)?)\b|\b([A-Za-z_]\w*)\b(\s*\()?/g;
+  let out = "", last = 0, m;
+  while ((m = re.exec(src))) {
+    out += esc(src.slice(last, m.index)); last = re.lastIndex;
+    if (m[1]) out += `<span class="tok-c">${esc(m[1])}</span>`;
+    else if (m[2]) out += `<span class="tok-s">${esc(m[2])}</span>`;
+    else if (m[3]) out += `<span class="tok-n">${m[3]}</span>`;
+    else {
+      const w = m[4], call = m[5] || "";
+      if (KW.has(w)) out += `<span class="tok-k">${w}</span>` + esc(call);
+      else if (call) out += `<span class="tok-f">${w}</span>` + esc(call);
+      else out += esc(w);
+    }
+  }
+  return out + esc(src.slice(last));
+}
+
+/* ================= Términos con definición ================= */
+const tip = $("#tip");
+let pinned = null;
+function decorateTerms(root) {
+  $$("dfn[data-t]", root).forEach(d => {
+    if (d.querySelector(".ti") || !GLOSS[d.dataset.t]) return;
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "ti"; b.textContent = "i";
+    b.setAttribute("aria-label", "Qué es: " + GLOSS[d.dataset.t][0]);
+    d.appendChild(b);
+  });
+}
+function showTip(d) {
+  const g = GLOSS[d.dataset.t]; if (!g) return;
+  tip.innerHTML = `<b>${g[0]}</b><p>${g[1]}</p>`;
+  tip.hidden = false;
+  const s = parseFloat(stage.style.getPropertyValue("--scale")) || 1;
+  const sr = stage.getBoundingClientRect(), r = d.getBoundingClientRect();
+  const x = (r.left - sr.left) / s, y = (r.top - sr.top) / s, h = r.height / s;
+  tip.style.left = Math.min(Math.max(24, x - 20), 1600 - 430 - 24) + "px";
+  const th = tip.offsetHeight;
+  tip.style.top = (y - th - 12 < 16 ? y + h + 12 : y - th - 12) + "px";
+}
+function hideTip() { if (tip) { tip.hidden = true; pinned = null; } }
+
+/* ================= Zonas horarias (Intl) ================= */
+const fmtCache = {};
+function tzParts(ms, tz) {
+  const f = fmtCache[tz] || (fmtCache[tz] = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit"
+  }));
+  const o = {}; for (const p of f.formatToParts(new Date(ms))) o[p.type] = p.value; return o;
+}
+function tzOffsetMin(ms, tz) {
+  const o = tzParts(ms, tz);
+  const asUTC = Date.UTC(+o.year, +o.month - 1, +o.day, +o.hour % 24, +o.minute, +o.second);
+  return Math.round((asUTC - Math.floor(ms / 1000) * 1000) / 60000);
+}
+function localToUtc(y, mo, d, h, mi, tz) {
+  const guess = Date.UTC(y, mo - 1, d, h, mi);
+  const t = guess - tzOffsetMin(guess, tz) * 60000;
+  return guess - tzOffsetMin(t, tz) * 60000;
+}
+const clock = (ms, tz) => { const o = tzParts(ms, tz); return pad(+o.hour % 24) + ":" + o.minute; };
+const offLbl = m => "UTC" + (m >= 0 ? "+" : "−") + Math.abs(m / 60);
+
+/* ================= Quiz ================= */
+function initQuiz() {
+  const root = $("#quiz"); if (!root) return;
+  root.addEventListener("click", e => {
+    const b = e.target.closest(".opt"); if (!b) return;
+    $$(".opt", root).forEach(o => {
+      o.classList.remove("is-right", "is-wrong", "is-half");
+      if (o.dataset.v === "25") o.classList.add("is-right");
+      else if (o.dataset.v === "dep") o.classList.add("is-half");
+    });
+    if (b.dataset.v === "23" || b.dataset.v === "24") b.classList.add("is-wrong");
+    const start = localToUtc(2026, 10, 25, 0, 0, "Europe/Madrid");
+    const end = localToUtc(2026, 10, 26, 0, 0, "Europe/Madrid");
+    const hours = [], seen = {};
+    for (let t = start; t < end; t += 3600e3) {
+      const lbl = clock(t, "Europe/Madrid"); seen[lbl] = (seen[lbl] || 0) + 1;
+      hours.push({ lbl, off: tzOffsetMin(t, "Europe/Madrid") });
+    }
+    $("#hours").innerHTML = hours.map((h, i) =>
+      `<div class="${seen[h.lbl] > 1 ? "twice" : ""}" style="animation-delay:${i * 35}ms"><b>${h.lbl.slice(0, 2)}</b><small>${offLbl(h.off).replace("UTC", "")}</small></div>`
+    ).join("");
+    $("#quiz-reveal").hidden = false;
+  });
+}
+
+/* ================= Taxonomía ================= */
+function initTaxonomy() {
+  const axes = [
+    ["Qué se reserva", ["Algo concreto", "Cualquiera de un grupo", "Varias cosas a la vez"]],
+    ["Cuántos caben", ["Uno", "N plazas", "Inventario por fecha"]],
+    ["Cómo se mide el tiempo", ["Rejilla fija", "Duración variable", "Días o noches"]],
+    ["Quién confirma", ["Al instante", "El proveedor aprueba", "Lista de espera"]],
+    ["Cuándo se paga", ["No se paga", "Al reservar (hold)", "Después"]],
+    ["Se repite", ["Puntual", "Recurrente"]],
+  ];
+  const domains = {
+    "Terapia online": [[0], [0], [0, 1], [1], [1], [0], "Profesional concreto, rejilla de 15' con duración por servicio, el profesional aprueba y se paga al reservar."],
+    "Peluquería": [[0, 1], [0], [1], [0], [0], [0], "\"Con quien sea\" convierte cada hueco en una búsqueda sobre un grupo de personas."],
+    "Hotel": [[1], [2], [2], [0], [1, 2], [0], "No reservas la 204: reservas \"doble superior\". La habitación concreta se asigna al llegar."],
+    "Restaurante": [[1, 2], [1], [0], [0, 2], [0], [0], "Mesas combinables: una reserva de ocho ocupa la 4 y la 5 juntas."],
+    "Clase de yoga": [[0], [1], [0], [0, 2], [1], [1], "Cada clase es una ocurrencia de una regla recurrente con 12 plazas y lista de espera."],
+    "Sala de reuniones": [[0], [0], [1], [0], [0], [1], "La recurrencia con excepciones (\"esta y las siguientes\") es la mitad del código."],
+    "Pista de pádel": [[0, 1], [0], [0], [0], [1], [0, 1], "Rejilla de 90' a en punto o y media. Los huecos sueltos de 30' no se venden."],
+  };
+  const dRoot = $("#tax-domains"), grid = $("#tax-grid");
+  dRoot.innerHTML = Object.keys(domains).map((d, i) => `<button aria-pressed="${i === 0}">${d}</button>`).join("");
+  grid.innerHTML = axes.map(([label, opts], a) =>
+    `<dt>${label}</dt><dd>${opts.map((o, i) => `<span class="pill" data-a="${a}" data-i="${i}">${o}</span>`).join("")}</dd>`
+  ).join("");
+  function pick(name) {
+    const d = domains[name];
+    $$(".pill", grid).forEach(p => p.classList.toggle("on", d[+p.dataset.a].includes(+p.dataset.i)));
+    $("#tax-note").textContent = d[6];
+    $$("button", dRoot).forEach(b => b.setAttribute("aria-pressed", b.textContent === name));
+  }
+  dRoot.addEventListener("click", e => { const b = e.target.closest("button"); if (b) pick(b.textContent); });
+  pick(Object.keys(domains)[0]);
+}
+
+/* ================= Disponibilidad por capas ================= */
+function initAvailability() {
+  const R0 = 480, R1 = 1260;
+  const pct = t => ((t - R0) / (R1 - R0) * 100) + "%";
+  const wid = (s, e) => ((e - s) / (R1 - R0) * 100) + "%";
+  const D = {
+    hours: [[540, 840], [960, 1200]],
+    now: 450, notice: 120,
+    bookings: [{ s: 600, d: 50, who: "Marta" }, { s: 960, d: 50, who: "Iván" }],
+    off: [[1080, 1140, "Fisio"]],
+    ext: [[750, 795, "Tutoría del cole"]],
+  };
+  const buf = d => 15 - d % 15;
+  const st = { rejilla: true, horario: true, antelacion: false, reservas: false, buffers: false, ausencias: false, externo: false, dur: 50 };
+  const lanes = [
+    ["rejilla", "Rejilla de 15'", "si no, cada 5'"],
+    ["horario", "Horario", "9–14 y 16–20"],
+    ["antelacion", "Antelación mínima", "ahora (07:30) + 2 h"],
+    ["reservas", "Reservas", "ya confirmadas"],
+    ["buffers", "Buffers", "15 − (duración mod 15)"],
+    ["ausencias", "Ausencias", "vacaciones, médico…"],
+    ["externo", "Calendario externo", "Google, Outlook…"],
+  ];
+  $("#av-scale").innerHTML = Array.from({ length: 14 }, (_, i) => `<span style="left:${pct(R0 + i * 60)}">${pad(8 + i)}</span>`).join("");
+  $("#av-lanes").innerHTML = lanes.map(([k, name, sub]) =>
+    `<div class="lane" data-k="${k}"><label><input type="checkbox" id="av-${k}" ${st[k] ? "checked" : ""}><span>${name}<small>${sub}</small></span></label><div class="track"></div></div>`
+  ).join("") + `<div class="lane result"><label style="cursor:default"><span>Huecos<small>lo que ve el cliente</small></span></label><div class="track" id="av-res"></div></div>`;
+
+  function blocks(k) {
+    const b = (s, e, cls, txt = "") => `<div class="blk ${cls}" style="left:${pct(s)};width:${wid(s, e)}">${txt}</div>`;
+    switch (k) {
+      case "rejilla": {
+        const stp = st.rejilla ? 15 : 5; let h = "";
+        for (let t = R0; t <= R1; t += stp) h += `<i class="tick" style="left:${pct(t)}"></i>`;
+        return h;
+      }
+      case "horario": return st.horario ? D.hours.map(([s, e]) => b(s, e, "work", hm(s) + "–" + hm(e))).join("") : b(R0, R1, "work", "sin horario: todo el día");
+      case "antelacion": return b(R0, D.now + D.notice, "notice", "hasta las " + hm(D.now + D.notice));
+      case "reservas": return D.bookings.map(x => b(x.s, x.s + x.d, "book", x.who)).join("");
+      case "buffers": return D.bookings.map(x => b(x.s + x.d, x.s + x.d + buf(x.d), "buf")).join("");
+      case "ausencias": return D.off.map(([s, e, t]) => b(s, e, "off", t)).join("");
+      case "externo": return D.ext.map(([s, e, t]) => b(s, e, "ext", t)).join("");
+    }
+    return "";
+  }
+  function compute() {
+    const stp = st.rejilla ? 15 : 5;
+    const windows = st.horario ? D.hours : [[R0, R1]];
+    const minStart = st.antelacion ? D.now + D.notice : -Infinity;
+    const busy = [];
+    if (st.reservas) D.bookings.forEach(x => busy.push([x.s, x.s + x.d + (st.buffers ? buf(x.d) : 0)]));
+    if (st.ausencias) D.off.forEach(([s, e]) => busy.push([s, e]));
+    if (st.externo) D.ext.forEach(([s, e]) => busy.push([s, e]));
+    const own = st.dur + (st.buffers ? buf(st.dur) : 0);
+    const out = [];
+    for (const [ws, we] of windows) {
+      for (let t = Math.ceil(ws / stp) * stp; t + st.dur <= we; t += stp) {
+        if (t < minStart) continue;
+        if (busy.some(([s, e]) => t < e && t + own > s)) continue;
+        out.push(t);
+      }
+    }
+    return out;
+  }
+  function draw() {
+    $$("#av-lanes .lane[data-k]").forEach(l => {
+      const k = l.dataset.k;
+      l.classList.toggle("off", !st[k]);
+      $(".track", l).innerHTML = blocks(k);
+    });
+    const slots = compute();
+    $("#av-res").innerHTML = slots.map((t, i) => `<i class="slot" title="${hm(t)}" style="left:${pct(t)};animation-delay:${i * 12}ms"></i>`).join("");
+    $("#av-n").textContent = slots.length;
+    $("#av-n-lbl").textContent = (slots.length === 1 ? "hueco" : "huecos") + " de " + st.dur + "'" + (st.buffers ? " + " + buf(st.dur) + "' de buffer" : "");
+    const shown = slots.slice(0, 26);
+    $("#av-chips").innerHTML = shown.map(t => `<span>${hm(t)}</span>`).join("") + (slots.length > shown.length ? `<span>+${slots.length - shown.length}</span>` : "");
+  }
+  $("#av-lanes").addEventListener("change", e => {
+    const k = e.target.id.replace("av-", ""); if (k in st) { st[k] = e.target.checked; draw(); }
+  });
+  $("#av-dur").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    st.dur = +b.dataset.d;
+    $$("#av-dur button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    draw();
+  });
+  draw();
+}
+
+/* ================= Recurrencia y zonas ================= */
+function initTz() {
+  const body = $("#tz-body"); if (!body) return;
+  const mondays = [[2026, 10, 19], [2026, 10, 26], [2026, 11, 2], [2026, 11, 9]];
+  const fixedUtc = mondays.map(([y, m, d]) => Date.UTC(y, m - 1, d, 14, 0));
+  let mode = "utc";
+  function draw() {
+    let prevNy = null;
+    body.innerHTML = mondays.map(([y, m, d], i) => {
+      const t = mode === "utc" ? fixedUtc[i] : localToUtc(y, m, d, 16, 0, "Europe/Madrid");
+      const mad = clock(t, "Europe/Madrid"), ny = clock(t, "America/New_York");
+      const nyChanged = prevNy !== null && ny !== prevNy; prevNy = ny;
+      return `<tr class="${i === 1 ? "dst" : ""}"><td>${d} ${m === 10 ? "oct" : "nov"}</td>` +
+        `<td>${clock(t, "UTC")}</td>` +
+        `<td class="${mad === "16:00" ? "good" : "bad"}">${mad}<small>${offLbl(tzOffsetMin(t, "Europe/Madrid"))}</small></td>` +
+        `<td class="${nyChanged ? "warn" : ""}">${ny}<small>${offLbl(tzOffsetMin(t, "America/New_York"))}</small></td></tr>`;
+    }).join("");
+    $("#tz-note").innerHTML = mode === "utc"
+      ? "Guardaste 14:00 UTC. El 25 de octubre Madrid cambia de hora y la cita se mueve a las 15:00 para la profesional."
+      : "Guardaste \"16:00 en Europe/Madrid\". La profesional siempre ve 16:00. En Nueva York, del 26 de octubre al 1 de noviembre la cita es a las 11:00: EE.&nbsp;UU. cambia una semana después. Es correcto, pero hay que avisar.";
+  }
+  $("#tz-mode").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    mode = b.dataset.m;
+    $$("#tz-mode button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    draw();
+  });
+  draw();
+}
+
+/* ================= Carrera ================= */
+function initRace() {
+  const root = $("#race"); if (!root) return;
+  const S = {
+    if: {
+      rows: [
+        ["BEGIN", "BEGIN"],
+        ["¿18:00 libre? → sí", ""],
+        ["", "¿18:00 libre? → sí"],
+        ["INSERT 18:00", ""],
+        ["", "INSERT 18:00"],
+        ["COMMIT ✓|ok", "COMMIT ✓|ok"],
+      ],
+      out: ["bad", "Dos reservas a las 18:00. Nadie ha hecho nada mal… por separado."],
+      tech: ["Anti-patrón", "Check-then-act", "checkact", "Comprobar y luego insertar. Funciona en tu máquina y falla con dos usuarios a la vez.",
+        "if not hay_solape(recurso, hueco):\n    crear_reserva(recurso, hueco)\n    # ← aquí se cuela el otro"],
+    },
+    lock: {
+      rows: [
+        ["BEGIN", "BEGIN"],
+        ["lock del profesional ✓", ""],
+        ["", "lock del profesional → espera…|wait"],
+        ["¿libre? → sí · INSERT", ""],
+        ["COMMIT ✓ (suelta el lock)|ok", ""],
+        ["", "lock ✓ · ¿libre? → no"],
+        ["", "409 \"Ese hueco ya no está\"|bad"],
+      ],
+      out: ["ok", "Una reserva. Luis recibe un error claro y elige otro hueco."],
+      tech: ["Técnica", "Lock pesimista", "lock", "Pone en fila las reservas del mismo recurso. Sencillo; vigila que el lock dure poco.",
+        "BEGIN;\nSELECT * FROM professional\n WHERE id = 7 FOR UPDATE;\n-- comprobar solapes e insertar\nCOMMIT;"],
+    },
+    exclude: {
+      rows: [
+        ["BEGIN", "BEGIN"],
+        ["INSERT 18:00", ""],
+        ["", "INSERT 18:00 → espera…|wait"],
+        ["COMMIT ✓|ok", ""],
+        ["", "ERROR: viola el constraint|bad"],
+        ["", "409 \"Ese hueco ya no está\"|bad"],
+      ],
+      out: ["ok", "Una reserva, sin locks en tu código. La garantía vive en el esquema."],
+      tech: ["Técnica", "Constraint EXCLUDE", "exclude", "Postgres rechaza dos reservas que se solapan, venga de donde venga el INSERT. Usa rangos semiabiertos.",
+        "ALTER TABLE booking ADD\n  EXCLUDE USING gist (\n    professional_id WITH =,\n    during WITH &&\n  ) WHERE (status <> 'cancelled');"],
+    },
+  };
+  let mode = "if", timers = [];
+  const head = `<div class="h">Ana<small>pestaña 1</small></div><div class="h">Luis<small>pestaña 2</small></div>`;
+  const cell = v => { const [txt, cls] = v.split("|"); return `<div class="c ${cls || ""}">${txt ? esc(txt) : "&nbsp;"}</div>`; };
+  function reset() {
+    timers.forEach(clearTimeout); timers = [];
+    root.innerHTML = head;
+    const o = $("#race-out"); o.className = "race-out";
+    o.textContent = "Ana y Luis pulsan \"Reservar las 18:00\" a la vez.";
+    const [tag, name, term, text, code] = S[mode].tech;
+    $("#race-tech").innerHTML = `<span class="tag">${tag}</span><h3><dfn data-t="${term}">${name}</dfn></h3><p>${text}</p><pre class="code">${highlight(code)}</pre>`;
+    decorateTerms($("#race-tech"));
+  }
+  function run() {
+    reset();
+    const s = S[mode];
+    s.rows.forEach((r, i) => timers.push(setTimeout(() => root.insertAdjacentHTML("beforeend", cell(r[0]) + cell(r[1])), 400 + i * 560)));
+    timers.push(setTimeout(() => { const o = $("#race-out"); o.className = "race-out " + s.out[0]; o.textContent = s.out[1]; }, 400 + s.rows.length * 560 + 200));
+  }
+  $("#race-mode").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    mode = b.dataset.m;
+    $$("#race-mode button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    reset();
+  });
+  $("#race-run").addEventListener("click", run);
+  reset();
+}
+
+/* ================= Máquina de estados ================= */
+function initStateMachine() {
+  const root = $("#sm"); if (!root) return;
+  const T = { PP: { pay: "PA", expire: "EX" }, PA: { accept: "AP", cancel: "CA" }, AP: { cancel: "CA", reschedule: "RE" } };
+  const INITIAL = "El cliente ha elegido hueco: hay un hold con TTL y la reserva espera el pago.";
+  const EV = {
+    pay: ["Pago confirmado", "Llega el webhook de pago → se bloquea la fila y se comprueba que no estaba ya pagada → el hold pasa a reserva firme → emails y recordatorios después del commit."],
+    accept: ["Profesional acepta", "El profesional confirma y se avisa al cliente."],
+    expire: ["Caduca el hold", "Una tarea programada al crear la reserva la marca como expirada y libera el hueco. El hold del proveedor caduca un minuto después."],
+    cancel: ["Cancelar", "Se cancela en el calendario, se decide el reembolso según la política (por ejemplo, más de 24 h) y se cancelan los recordatorios."],
+    reschedule: ["Reprogramar", "Se reserva la hora nueva, se cancela la antigua y nace otra reserva pendiente de aprobación."],
+  };
+  let cur = "PP";
+  const evRoot = $("#sm-events");
+  evRoot.innerHTML = Object.entries(EV).map(([k, [lbl]]) => `<button class="btn" data-ev="${k}">${lbl}</button>`).join("") + `<button class="btn ghost" data-ev="reset">Reiniciar</button>`;
+  function draw(fired) {
+    $$(".node", root).forEach(n => n.classList.toggle("on", n.dataset.n === cur));
+    $$(".edge", root).forEach(g => {
+      g.classList.toggle("can", g.dataset.e.split("-")[0] === cur);
+      g.classList.toggle("fired", g.dataset.e === fired);
+    });
+    $$("button[data-ev]", evRoot).forEach(b => { if (b.dataset.ev !== "reset") b.disabled = !(T[cur] && T[cur][b.dataset.ev]); });
+  }
+  evRoot.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.ev === "reset") { cur = "PP"; $("#sm-log").textContent = INITIAL; draw(); return; }
+    const to = T[cur] && T[cur][b.dataset.ev]; if (!to) return;
+    const edge = cur + "-" + to; cur = to;
+    $("#sm-log").textContent = EV[b.dataset.ev][1];
+    draw(edge);
+  });
+  $("#sm-log").textContent = INITIAL;
+  draw();
+}
+
+/* ================= Webhooks ================= */
+function initWebhooks() {
+  const s = { in: 0, book: 0, mail: 0 };
+  function draw() {
+    $("#wh-in").textContent = s.in; $("#wh-book").textContent = s.book; $("#wh-mail").textContent = s.mail;
+    $("#wh-book").parentElement.classList.toggle("bad", s.book > 1);
+    $("#wh-mail").parentElement.classList.toggle("bad", s.mail > 1);
+  }
+  $("#wh-send").addEventListener("click", () => {
+    s.in++;
+    if (!$("#wh-guard").checked || s.book === 0) { s.book++; s.mail++; }
+    draw();
+  });
+  const reset = () => { s.in = s.book = s.mail = 0; draw(); };
+  $("#wh-reset").addEventListener("click", reset);
+  $("#wh-guard").addEventListener("change", reset);
+  draw();
+}
+
+/* ================= Saga de reprogramación ================= */
+function initSaga() {
+  const root = $("#saga"); if (!root) return;
+  const f1 = $("#saga-f1"), f2 = $("#saga-f2");
+  const INTRO = "¿Por qué reservar la nueva antes de cancelar la antigua? Si falla a medias, prefieres un hueco de más que un cliente sin cita.";
+  let timers = [];
+  const setS = (k, cls) => { const el = $(`.step[data-k="${k}"]`, root); el.classList.remove("run", "ok", "fail", "skip"); if (cls) el.classList.add(cls); };
+  function reset() { timers.forEach(clearTimeout); timers = []; ["new", "old", "db", "comp", "cs"].forEach(k => setS(k)); $("#saga-out").textContent = INTRO; }
+  f1.addEventListener("change", () => { f2.disabled = !f1.checked; if (!f1.checked) f2.checked = false; reset(); });
+  f2.addEventListener("change", reset);
+  $("#saga-run").addEventListener("click", () => {
+    reset();
+    const seq = [["new", "run"], ["new", "ok"], ["old", "run"]];
+    let out;
+    if (!f1.checked) {
+      seq.push(["old", "ok"], ["db", "run"], ["db", "ok"], ["comp", "skip"], ["cs", "skip"]);
+      out = "Reprogramada. Cita nueva, la antigua cancelada y nuestra base de datos coherente con el proveedor.";
+    } else if (!f2.checked) {
+      seq.push(["old", "fail"], ["db", "skip"], ["comp", "run"], ["comp", "ok"], ["cs", "skip"]);
+      out = "Compensado: se cancela la reserva nueva, rollback y error claro al cliente. Todo queda como estaba.";
+    } else {
+      seq.push(["old", "fail"], ["db", "skip"], ["comp", "run"], ["comp", "fail"], ["cs", "run"], ["cs", "ok"]);
+      out = "No podemos arreglarlo solos: aviso a soporte para borrar a mano la reserva huérfana, más una métrica para saber cuántas veces pasa.";
+    }
+    $("#saga-out").textContent = "…";
+    seq.forEach(([k, c], i) => timers.push(setTimeout(() => setS(k, c), 250 + i * 420)));
+    timers.push(setTimeout(() => { $("#saga-out").textContent = out; }, 250 + seq.length * 420));
+  });
+  reset();
+}
+
+/* ================= Fail-open / fail-closed ================= */
+function initFailOpen() {
+  const cal = $("#fo-cal"); if (!cal) return;
+  const slots = [["10:00", ""], ["11:00", ""], ["12:00", "Dentista (Google)"], ["17:00", ""]];
+  let mode = "open";
+  function draw() {
+    const down = $("#fo-down").checked;
+    let html, note;
+    if (!down) {
+      html = slots.filter(s => !s[1]).map(s => `<div>${s[0]}<small>libre</small></div>`).join("");
+      note = "Google responde: el hueco de las 12:00 se filtra porque la profesional tiene dentista.";
+    } else if (mode === "open") {
+      html = slots.map(s => s[1] ? `<div class="risk">${s[0]}<small>choca con: ${s[1]}</small></div>` : `<div>${s[0]}<small>libre</small></div>`).join("");
+      note = "Fail-open: seguimos vendiendo. Riesgo: una reserva encima de un evento personal.";
+    } else {
+      html = `<p>No hay huecos disponibles. Vuelve a intentarlo en unos minutos.</p>`;
+      note = "Fail-closed: cero conflictos, pero el cliente ve el calendario vacío y se va.";
+    }
+    cal.innerHTML = html; $("#fo-note").textContent = note;
+  }
+  $("#fo-down").addEventListener("change", draw);
+  $("#fo-mode").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    mode = b.dataset.m;
+    $$("#fo-mode button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    draw();
+  });
+  draw();
+}
+
+/* ================= Comprar o construir ================= */
+function initBuildBuy() {
+  const root = $("#bb-q"); if (!root) return;
+  const Q = [
+    ["Tus recursos son personas que ya viven en Google u Outlook", -2],
+    ["Necesitas videollamada o emails de calendario de serie", -1],
+    ["Tienes que estar en producción en menos de 3 meses", -2],
+    ["Hay plazas, inventario o recursos combinados", 2],
+    ["Reglas propias: aprobación, precio o duración por cliente", 2],
+    ["Reservar es el núcleo del negocio, no un accesorio", 2],
+    ["La disponibilidad tiene que ser muy rápida o a gran volumen", 1],
+    ["Hay equipo para mantenerlo cuando acabe el proyecto", 1],
+  ];
+  const CASE = [1, 1, 1, 0, 1, 1, 0, 1];
+  const ans = Q.map(() => null);
+  root.innerHTML = Q.map(([q], i) =>
+    `<div><p>${q}</p><span class="seg" role="group" aria-label="${q}"><button data-i="${i}" data-v="1" aria-pressed="false">Sí</button><button data-i="${i}" data-v="0" aria-pressed="false">No</button></span></div>`
+  ).join("");
+  function draw() {
+    $$("button[data-i]", root).forEach(b => b.setAttribute("aria-pressed", ans[+b.dataset.i] === +b.dataset.v));
+    const score = Q.reduce((s, [, w], i) => s + (ans[i] === 1 ? w : 0), 0);
+    const answered = ans.filter(a => a !== null).length;
+    $("#bb-needle").style.left = (50 + score / 8 * 50) + "%";
+    let v, sub;
+    if (score <= -3) { v = "Comprar"; sub = "Un proveedor te da calendario, sincronización y videollamada. Envuélvelo en un conector desde el primer día."; }
+    else if (score >= 3) { v = "Construir"; sub = "Tu modelo de reserva es tu producto. Postgres, rangos, EXCLUDE y un outbox te llevan lejos."; }
+    else { v = "Híbrido"; sub = "Tu base de datos manda sobre reservas, precios y estados. El proveedor pone calendario, sincronización y vídeo."; }
+    $("#bb-verdict").textContent = v;
+    $("#bb-sub").textContent = answered ? sub + " (" + answered + "/8 respondidas)" : "Responde las preguntas para ver hacia dónde se inclina.";
+  }
+  root.addEventListener("click", e => { const b = e.target.closest("button[data-i]"); if (!b) return; ans[+b.dataset.i] = +b.dataset.v; draw(); });
+  $("#bb-case").addEventListener("click", () => { CASE.forEach((v, i) => ans[i] = v); draw(); });
+  $("#bb-reset").addEventListener("click", () => { ans.fill(null); draw(); });
+  draw();
+}
+
+/* ================= Checklist ================= */
+function initChecklist() {
+  const root = $("#check"); if (!root) return;
+  const btns = $$(":scope > li > button", root);
+  const draw = () => { $("#check-n").textContent = btns.filter(b => b.getAttribute("aria-pressed") === "true").length + " / " + btns.length; };
+  root.addEventListener("click", e => { const b = e.target.closest(".check > li > button"); if (!b) return; b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); draw(); });
+  draw();
+}
+
+/* ================= Glosario (lámina) ================= */
+function initGlossary() {
+  const root = $("#gloss"); if (!root) return;
+  root.innerHTML = Object.values(GLOSS).sort((a, b) => a[0].localeCompare(b[0], "es"))
+    .map(([t, d]) => `<div><b>${t}</b><span>${d}</span></div>`).join("");
+}
+
+/* ================= Vista de presentador ================= */
+function initPresenter() {
+  const P = $("#presenter");
+  const opener = window.opener;
+  P.innerHTML = `
+    ${opener ? "" : `<div class="p-warn">Abre esta vista desde la presentación pulsando <kbd>P</kbd>; así queda enlazada con ella.</div>`}
+    <div class="p-top">
+      <div class="p-where"><small id="p-sec"></small><span id="p-title"></span></div>
+      <div class="p-pace" id="p-pace"><b>Cronómetro parado</b><span>Arranca al pasar de la portada</span></div>
+      <div class="p-clock" id="p-clock">00:00</div>
+      <div class="p-nav">
+        <button class="btn" id="p-start">Iniciar</button>
+        <button class="btn ghost" id="p-reset">Reiniciar</button>
+      </div>
+    </div>
+    <div class="p-col">
+      <span class="p-label" id="p-cur-l">Ahora</span>
+      <div class="pv" id="pv-cur"><iframe title="Diapositiva actual" tabindex="-1"></iframe></div>
+      <div class="p-nav">
+        <button class="btn" id="p-prev">← Anterior</button>
+        <button class="btn solid" id="p-next">Siguiente →</button>
+      </div>
+    </div>
+    <div class="p-col">
+      <span class="p-label" id="p-next-l">Siguiente</span>
+      <div class="pv" id="pv-next"><iframe title="Diapositiva siguiente" tabindex="-1"></iframe></div>
+      <div class="p-notes" id="p-notes"></div>
+    </div>`;
+  const base = location.href.split("#")[0].split("?")[0] + "?embed";
+  const fCur = $("#pv-cur iframe"), fNext = $("#pv-next iframe");
+  fCur.src = base + "#1"; fNext.src = base + "#2";
+  let cur = 0, st = 0, running = false, startedAt = 0, acc = 0, everStarted = false;
+  const elapsed = () => acc + (running ? (Date.now() - startedAt) / 1000 : 0);
+  const mmss = s => pad(Math.floor(s / 60)) + ":" + pad(Math.floor(s % 60));
+  function scaleFrames() { $$(".pv", P).forEach(pv => { $("iframe", pv).style.transform = `scale(${pv.clientWidth / 1600})`; }); }
+  function tick() {
+    const e = elapsed();
+    $("#p-clock").textContent = mmss(e);
+    const pace = $("#p-pace");
+    if (!everStarted) return;
+    const target = cumStart[cur] * 60, delta = e - target;
+    const who = Math.abs(delta) < 45 ? "ok" : delta > 0 ? "late" : "early";
+    pace.className = "p-pace " + who;
+    pace.innerHTML = `<b>${who === "ok" ? "En tiempo" : who === "late" ? "+" + mmss(delta) + " tarde" : mmss(-delta) + " adelantado"}</b>` +
+      `<span>Esta lámina: min ${fmtMin(cumStart[cur])}–${fmtMin(cumStart[cur + 1])} · total ${fmtMin(totalMin)}</span>`;
+  }
+  function start() { if (running) return; running = true; everStarted = true; startedAt = Date.now(); $("#p-start").textContent = "Pausa"; }
+  function pause() { if (!running) return; acc = elapsed(); running = false; $("#p-start").textContent = "Seguir"; }
+  $("#p-start").addEventListener("click", () => running ? pause() : start());
+  $("#p-reset").addEventListener("click", () => { running = false; acc = 0; everStarted = false; $("#p-start").textContent = "Iniciar"; $("#p-pace").className = "p-pace"; $("#p-pace").innerHTML = "<b>Cronómetro parado</b><span>Arranca al pasar de la portada</span>"; tick(); });
+  function update() {
+    const s = slides[cur];
+    $("#p-sec").textContent = pad(cur + 1) + " / " + pad(total) + (sectionOf(cur) ? " · " + sectionOf(cur) : "");
+    $("#p-title").textContent = s.dataset.title || "";
+    $("#p-cur-l").textContent = "Ahora" + (maxStep(s) ? ` · paso ${st} de ${maxStep(s)}` : "");
+    $("#p-next-l").textContent = cur < total - 1 ? "Siguiente · " + (slides[cur + 1].dataset.title || "") : "Fin";
+    $("#p-notes").innerHTML = notesHtml(cur);
+    fCur.src = base + "#" + (cur + 1) + ":" + st;
+    fNext.src = base + "#" + Math.min(total, cur + 2);
+    tick();
+  }
+  const send = (cmd, extra = {}) => opener && opener.postMessage({ deck: "cmd", cmd, ...extra }, "*");
+  $("#p-next").addEventListener("click", () => send("next"));
+  $("#p-prev").addEventListener("click", () => send("prev"));
+  document.addEventListener("keydown", e => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); send("next"); }
+    else if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); send("prev"); }
+  });
+  addEventListener("message", e => {
+    const d = e.data || {};
+    if (d.deck !== "state" || e.source !== opener) return;
+    cur = d.idx; st = d.step;
+    if (!everStarted && cur > 0) start();
+    update();
+  });
+  addEventListener("resize", scaleFrames);
+  scaleFrames(); update();
+  setInterval(tick, 500);
+  if (opener) opener.postMessage({ deck: "hello" }, "*");
+}
+
+/* ================= Arranque ================= */
+[initQuiz, initTaxonomy, initAvailability, initTz, initRace, initStateMachine, initWebhooks, initSaga, initFailOpen, initBuildBuy, initChecklist, initGlossary]
+  .forEach(fn => { try { fn(); } catch (err) { console.error(err); } });
+$$("pre.code:not(:empty)", stage).forEach(p => { if (!p.querySelector("span")) p.innerHTML = highlight(p.textContent); });
+decorateTerms(document);
+
+if (MODE === "presenter") { initPresenter(); return; }
+
+// Índice lateral
+$("#toc-total").textContent = fmtMin(totalMin);
+$("#toc-list").innerHTML = slides.map((s, k) =>
+  `<li class="${s.classList.contains("section") ? "sec" : ""}"><button data-i="${k}"><span>${pad(k + 1)}</span><span>${s.dataset.title || ""}</span><span>${minOf(s) ? fmtMin(minOf(s)) : ""}</span></button></li>`
+).join("");
+$("#toc-list").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; go(+b.dataset.i); toggle($("#toc"), false); });
+
+// Definiciones: hover, foco y clic
+stage.addEventListener("mouseover", e => { const d = e.target.closest("dfn[data-t]"); if (d && !pinned) showTip(d); });
+stage.addEventListener("mouseout", e => {
+  const d = e.target.closest("dfn[data-t]");
+  if (d && !pinned && !d.contains(e.relatedTarget)) tip.hidden = true;
+});
+stage.addEventListener("focusin", e => { const d = e.target.closest("dfn[data-t]"); if (d) showTip(d); });
+stage.addEventListener("focusout", e => { if (e.target.closest("dfn[data-t]") && !pinned) tip.hidden = true; });
+stage.addEventListener("click", e => {
+  const b = e.target.closest(".ti");
+  if (b) { e.stopPropagation(); const d = b.closest("dfn"); if (pinned === d) hideTip(); else { showTip(d); pinned = d; } return; }
+  if (pinned && !e.target.closest("dfn")) hideTip();
+});
+
+const fromHash = () => {
+  const [a, b] = (location.hash || "").slice(1).split(":");
+  const n = parseInt(a, 10), s = parseInt(b, 10);
+  return [Number.isFinite(n) ? n - 1 : 0, Number.isFinite(s) ? s : 0];
+};
+addEventListener("resize", fit);
+addEventListener("hashchange", () => { const [i, s] = fromHash(); if (i !== idx || s !== step) go(i, s); });
+fit();
+go(...fromHash());
+
+if (MODE === "embed") return;
+
+document.addEventListener("keydown", e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target;
+  const typing = t.matches?.("input[type=range], input[type=text], textarea, select");
+  const pressable = t.matches?.("button, input, label, a, select");
+  const k = e.key;
+  if (k === "Escape") { toggle($("#toc"), false); toggle($("#notes"), false); hideTip(); return; }
+  if (typing) return;
+  if (k === "ArrowRight" || k === "PageDown") { e.preventDefault(); next(); }
+  else if (k === "ArrowLeft" || k === "PageUp") { e.preventDefault(); prev(); }
+  else if ((k === " " || k === "Enter") && !pressable) { e.preventDefault(); e.shiftKey ? prev() : next(); }
+  else if (k === "Home") go(0);
+  else if (k === "End") go(total - 1);
+  else if (k === "f" || k === "F") fullscreen();
+  else if (k === "n" || k === "N") toggle($("#notes"));
+  else if (k === "o" || k === "O") toggle($("#toc"));
+  else if (k === "p" || k === "P") openPresenter();
+});
+$("#next").addEventListener("click", next);
+$("#prev").addEventListener("click", prev);
+
+let touchX = null;
+stage.addEventListener("pointerdown", e => { touchX = e.target.closest("button, input, label, select, dfn, .no-swipe") ? null : e.clientX; });
+stage.addEventListener("pointerup", e => {
+  if (touchX === null || e.pointerType === "mouse") return;
+  const dx = e.clientX - touchX;
+  if (Math.abs(dx) > 60) dx < 0 ? next() : prev();
+  touchX = null;
+});
+
+addEventListener("message", e => {
+  const d = e.data || {};
+  if (d.deck === "hello") { presenterWin = e.source; render(); }
+  else if (d.deck === "cmd" && e.source === presenterWin) {
+    if (d.cmd === "next") next(); else if (d.cmd === "prev") prev(); else if (d.cmd === "go") go(d.idx);
+  }
+});
+})();
+</script>
+</body>
+</html>
