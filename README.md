@@ -15,6 +15,24 @@ nothing else to edit: the index is generated for you.
 
 With Claude Code, from this repo: `/publish-talk path/to/my-deck.html`.
 
+## Starting a new deck
+
+`template/index.html` is a starter deck in the Acid Tango style: dark night background, striped
+yellow sun, perspective grid, Montserrat. It has a cover, two content slides, a closing slide,
+arrow-key navigation and speaker notes (press `N`). It is already self-contained.
+
+1. Copy it to `YYYY-MM-DD-short-title/index.html`.
+2. Set `<title>`, `<meta name="author">` and `<meta name="description">`.
+3. Replace the example slides. Each slide is a `<section class="slide">` with a `data-title` and a
+   `<div class="notes">` for your script. The cover and closing slides use
+   `class="slide cover" data-mode="cover"`.
+
+With Claude: _"make my slides starting from `template/index.html` in the acid-talks repo, using only
+its classes"_. If you have access to the Acid Tango design system on claude.ai, ask Claude to use it:
+it is the same template, plus a guide for every component.
+
+The `template/` folder is not a talk, so it is not published on the site.
+
 ## What the HTML should look like
 
 - **Self-contained**: a single `index.html` with its CSS, JS and images inside (inline or base64).
